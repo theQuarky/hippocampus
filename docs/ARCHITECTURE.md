@@ -109,57 +109,57 @@ if edge.weight.value() < (threshold * 0.5) { // Lower threshold
 
 ```mermaid
 graph TD
-    A[learn(content)] --> B[Create Concept]
-    B --> C[Add to concepts DashMap]
-    C --> D[Add to working_memory]
+    A["learn(content)"] --> B["Create Concept"]
+    B --> C["Add to concepts DashMap"]
+    C --> D["Add to working_memory"]
     
-    E[associate(a, b)] --> F[Check concepts exist]
-    F --> G[Create SynapticEdge]
-    G --> H[Add to short_term_edges]
-    H --> I[Update working_memory]
+    E["associate(a, b)"] --> F["Check concepts exist"]
+    F --> G["Create SynapticEdge"]
+    G --> H["Add to short_term_edges"]
+    H --> I["Update working_memory"]
 ```
 
 ### 2. Access Flow
 
 ```mermaid
 graph TD
-    A[access_concept(id)] --> B[Update concept.last_accessed]
-    B --> C[Increment access_count]
-    C --> D[Add to working_memory]
-    D --> E[strengthen_concept_connections()]
-    E --> F[Apply LTP to related edges]
+    A["access_concept(id)"] --> B["Update concept.last_accessed"]
+    B --> C["Increment access_count"]
+    C --> D["Add to working_memory"]
+    D --> E["strengthen_concept_connections()"]
+    E --> F["Apply LTP to related edges"]
 ```
 
 ### 3. Consolidation Flow
 
 ```mermaid
 graph TD
-    A[consolidate_memory()] --> B[Evaluate short_term_edges]
-    B --> C{should_promote?}
-    C -->|Yes| D[Move to long_term_edges]
-    C -->|No| E{is_active?}
-    E -->|No| F[Remove edge]
-    E -->|Yes| G[Keep in short_term]
-    D --> H[Apply interference]
+    A["consolidate_memory()"] --> B["Evaluate short_term_edges"]
+    B --> C{"should_promote?"}
+    C -->|Yes| D["Move to long_term_edges"]
+    C -->|No| E{"is_active?"}
+    E -->|No| F["Remove edge"]
+    E -->|Yes| G["Keep in short_term"]
+    D --> H["Apply interference"]
     F --> H
     G --> H
-    H --> I[Update consolidation timestamp]
+    H --> I["Update consolidation timestamp"]
 ```
 
 ### 4. Recall Flow
 
 ```mermaid
 graph TD
-    A[recall(concept_id)] --> B[Initialize BFS queue]
-    B --> C[Pop current concept]
-    C --> D[Explore connections]
-    D --> E[Calculate relevance scores]
-    E --> F[Add neighbors to queue]
-    F --> G{Queue empty?}
+    A["recall(concept_id)"] --> B["Initialize BFS queue"]
+    B --> C["Pop current concept"]
+    C --> D["Explore connections"]
+    D --> E["Calculate relevance scores"]
+    E --> F["Add neighbors to queue"]
+    F --> G{"Queue empty?"}
     G -->|No| C
-    G -->|Yes| H[Sort by relevance]
-    H --> I[Apply recency boost]
-    I --> J[Return results]
+    G -->|Yes| H["Sort by relevance"]
+    H --> I["Apply recency boost"]
+    I --> J["Return results"]
 ```
 
 ## 🧬 Component Interactions

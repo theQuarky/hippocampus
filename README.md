@@ -200,6 +200,6 @@ This implementation draws inspiration from:
 
 ---
 
-**Built with ❤️ and 🧠 by the LeafMind team**
+**Built with ❤️ and 🧠 by Hiren Rana**
 
 *"Bridging the gap between biological and artificial intelligence"*
