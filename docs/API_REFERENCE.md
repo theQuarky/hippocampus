@@ -6,6 +6,9 @@ Complete API documentation for all public interfaces in LeafMind.
 
 - [Core Types](#core-types)
 - [MemoryGraph](#memorygraph)
+- [**NEW: PersistentMemoryGraph**](#persistentmemorygraph)
+- [**NEW: Persistence Configuration**](#persistence-configuration)
+- [**NEW: Factory Patterns**](#factory-patterns)
 - [Configuration](#configuration)
 - [Recall System](#recall-system)
 - [Statistics](#statistics)
@@ -429,6 +432,309 @@ Performs spreading activation recall from multiple seed concepts.
 let seed_concepts = vec![cat_id, dog_id];
 let results = memory.spreading_activation_recall(&seed_concepts, 0.2, 5);
 println!("Spreading activation found {} concepts", results.len());
+```
+
+---
+
+## 💾 **PersistentMemoryGraph**
+
+The persistent version of MemoryGraph that automatically saves all data to disk using RocksDB.
+
+```rust
+pub struct PersistentMemoryGraph { /* private fields */ }
+```
+
+### Creation Methods
+
+##### `PersistentMemoryGraph::new(memory_config: MemoryConfig, persistence_config: PersistenceConfig) -> Result<PersistentMemoryGraph, Box<dyn Error>>`
+
+Creates a new persistent memory graph with custom configurations.
+
+```rust
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let memory = PersistentMemoryGraph::new(
+        MemoryConfig::default(),
+        PersistenceConfig {
+            db_path: PathBuf::from("my_brain.db"),
+            auto_save_interval_seconds: 60,
+            enable_compression: true,
+            ..PersistenceConfig::default()
+        }
+    ).await?;
+    
+    Ok(())
+}
+```
+
+##### `PersistentMemoryGraph::new_with_defaults() -> Result<PersistentMemoryGraph, Box<dyn Error>>`
+
+Creates a persistent memory graph with default settings.
+
+```rust
+let memory = PersistentMemoryGraph::new_with_defaults().await?;
+```
+
+### Memory Operations (Async)
+
+All memory operations return `Result` types and are asynchronous for optimal performance.
+
+##### `async fn learn(&self, content: String) -> Result<ConceptId, Box<dyn Error>>`
+
+Learn a new concept and automatically persist it.
+
+```rust
+let concept_id = memory.learn("Persistent memory concept".to_string()).await?;
+```
+
+##### `async fn associate(&self, from: ConceptId, to: ConceptId) -> Result<(), Box<dyn Error>>`
+
+Create an association between concepts and persist it.
+
+```rust
+memory.associate(concept1, concept2).await?;
+```
+
+##### `async fn access_concept(&self, concept_id: &ConceptId) -> Result<(), Box<dyn Error>>`
+
+Access a concept, updating its usage statistics in the database.
+
+```rust
+memory.access_concept(&concept_id).await?;
+```
+
+### Persistence Operations
+
+##### `async fn force_save(&self) -> Result<(), Box<dyn Error>>`
+
+Force immediate save of all data to disk.
+
+```rust
+memory.force_save().await?;
+```
+
+##### `async fn backup<P: AsRef<Path>>(&self, backup_path: P) -> Result<(), Box<dyn Error>>`
+
+Create a complete backup of the database.
+
+```rust
+memory.backup("backup.db").await?;
+```
+
+##### `async fn restore<P: AsRef<Path>>(&mut self, backup_path: P) -> Result<(), Box<dyn Error>>`
+
+Restore database from a backup file.
+
+```rust
+memory.restore("backup.db").await?;
+```
+
+##### `async fn compact(&self) -> Result<(), Box<dyn Error>>`
+
+Compact the database to reclaim space.
+
+```rust
+memory.compact().await?;
+```
+
+### Statistics
+
+##### `async fn get_combined_stats(&self) -> (MemoryStats, PersistenceStats)`
+
+Get both memory and persistence statistics.
+
+```rust
+let (memory_stats, persistence_stats) = memory.get_combined_stats().await;
+println!("Concepts: {}", memory_stats.total_concepts);
+println!("Database size: {} bytes", persistence_stats.database_size_bytes);
+println!("Cache hit rate: {:.1}%", persistence_stats.cache_hit_rate * 100.0);
+```
+
+### Access to Internal Components
+
+##### `fn memory_graph(&self) -> &MemoryGraph`
+
+Get reference to the internal memory graph for advanced operations.
+
+```rust
+let internal_graph = memory.memory_graph();
+let results = internal_graph.recall(&concept_id, RecallQuery::default());
+```
+
+---
+
+## 🔧 **Persistence Configuration**
+
+Configuration for persistent storage behavior.
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistenceConfig {
+    pub db_path: PathBuf,
+    pub auto_save_interval_seconds: u64,
+    pub batch_size: usize,
+    pub enable_compression: bool,
+    pub max_cache_size: usize,
+    pub enable_wal: bool,
+}
+```
+
+### Fields
+
+- **`db_path`**: Path to the database file (default: `"leafmind.db"`)
+- **`auto_save_interval_seconds`**: Auto-save frequency in seconds (default: `300`, 0 = disabled)
+- **`batch_size`**: Number of items per batch operation (default: `1000`)
+- **`enable_compression`**: Enable LZ4 compression (default: `true`)
+- **`max_cache_size`**: Maximum items in memory cache (default: `100000`)
+- **`enable_wal`**: Enable Write-Ahead Logging for crash recovery (default: `true`)
+
+### Default Configuration
+
+```rust
+let config = PersistenceConfig::default();
+// Equivalent to:
+let config = PersistenceConfig {
+    db_path: PathBuf::from("leafmind.db"),
+    auto_save_interval_seconds: 300,  // 5 minutes
+    batch_size: 1000,
+    enable_compression: true,
+    max_cache_size: 100000,
+    enable_wal: true,
+};
+```
+
+### Usage Examples
+
+#### High-Performance Configuration
+```rust
+let high_perf_config = PersistenceConfig {
+    db_path: PathBuf::from("hp_brain.db"),
+    auto_save_interval_seconds: 120,  // 2 minutes
+    batch_size: 5000,                 // Large batches
+    enable_compression: true,
+    max_cache_size: 500000,          // Large cache
+    enable_wal: true,
+};
+```
+
+#### Storage-Optimized Configuration
+```rust
+let storage_config = PersistenceConfig {
+    db_path: PathBuf::from("compact_brain.db"),
+    auto_save_interval_seconds: 600,  // 10 minutes
+    batch_size: 2000,
+    enable_compression: true,         // Compress for space
+    max_cache_size: 50000,           // Smaller cache
+    enable_wal: true,
+};
+```
+
+---
+
+## 🏭 **Factory Patterns**
+
+The `MemoryGraphFactory` provides convenient methods to create different types of memory systems.
+
+```rust
+pub struct MemoryGraphFactory;
+```
+
+### Factory Methods
+
+##### `async fn create_persistent_default() -> Result<PersistentMemoryGraph, Box<dyn Error>>`
+
+Create a persistent memory graph with default settings.
+
+```rust
+let memory = MemoryGraphFactory::create_persistent_default().await?;
+```
+
+##### `async fn create_high_performance() -> Result<PersistentMemoryGraph, Box<dyn Error>>`
+
+Create a memory graph optimized for high-performance workloads.
+
+```rust
+let memory = MemoryGraphFactory::create_high_performance().await?;
+```
+
+Configuration:
+- Database: `"leafmind_hp.db"`
+- Auto-save: Every 2 minutes
+- Batch size: 5000 items
+- Cache size: 500k items
+- Memory config: Conservative learning, high capacity
+
+##### `async fn create_research_optimized() -> Result<PersistentMemoryGraph, Box<dyn Error>>`
+
+Create a memory graph optimized for research and analysis.
+
+```rust
+let memory = MemoryGraphFactory::create_research_optimized().await?;
+```
+
+Configuration:
+- Database: `"leafmind_research.db"`
+- Auto-save: Every 10 minutes
+- Batch size: 2000 items
+- Cache size: 200k items
+- Memory config: Balanced learning and decay rates
+
+##### `async fn create_persistent(memory_config: MemoryConfig, persistence_config: PersistenceConfig) -> Result<PersistentMemoryGraph, Box<dyn Error>>`
+
+Create a persistent memory graph with fully custom configuration.
+
+```rust
+let memory = MemoryGraphFactory::create_persistent(
+    MemoryConfig {
+        learning_rate: 0.15,
+        decay_rate: 0.005,
+        consolidation_threshold: 0.7,
+        ..MemoryConfig::default()
+    },
+    PersistenceConfig {
+        db_path: PathBuf::from("custom_brain.db"),
+        auto_save_interval_seconds: 180,
+        enable_compression: true,
+        max_cache_size: 250000,
+        ..PersistenceConfig::default()
+    }
+).await?;
+```
+
+##### `fn create_memory_only(config: MemoryConfig) -> MemoryGraph`
+
+Create an in-memory only graph (no persistence).
+
+```rust
+let memory = MemoryGraphFactory::create_memory_only(MemoryConfig::default());
+```
+
+### Usage Patterns
+
+#### For Web Applications
+```rust
+// High-performance setup for real-time applications
+let memory = MemoryGraphFactory::create_high_performance().await?;
+```
+
+#### For Research Projects
+```rust
+// Balanced setup for research and experimentation
+let memory = MemoryGraphFactory::create_research_optimized().await?;
+```
+
+#### For Mobile/Edge Devices
+```rust
+// Storage-optimized setup for resource-constrained environments
+let memory = MemoryGraphFactory::create_persistent(
+    MemoryConfig::default(),
+    PersistenceConfig {
+        auto_save_interval_seconds: 900,  // 15 minutes
+        max_cache_size: 25000,           // Small cache
+        enable_compression: true,        // Save space
+        ..PersistenceConfig::default()
+    }
+).await?;
 ```
 
 ---

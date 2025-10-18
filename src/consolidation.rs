@@ -2,7 +2,7 @@ use crate::memory_graph::MemoryGraph;
 use crate::types::{ConceptId, SynapticEdge};
 use chrono::{Duration, Utc};
 use std::collections::{HashMap, HashSet};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Consolidation statistics
 #[derive(Debug, Clone)]
@@ -21,7 +21,7 @@ impl MemoryGraph {
         info!("Starting memory consolidation - hippocampus to cortex transfer");
 
         let initial_short_term_count = self.short_term_edges.len();
-        let initial_long_term_count = self.long_term_edges.len();
+        let _initial_long_term_count = self.long_term_edges.len();
 
         let mut promoted = 0;
         let mut pruned = 0;

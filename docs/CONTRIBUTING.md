@@ -21,6 +21,7 @@ Thank you for your interest in contributing to LeafMind! This guide will help yo
 - **Rust 1.90.0 or later**: LeafMind uses modern Rust features
 - **Git**: For version control
 - **IDE/Editor**: VS Code with rust-analyzer is recommended
+- **RocksDB dependencies**: Required for persistence features (see below)
 
 ### First Time Setup
 
@@ -32,6 +33,14 @@ Thank you for your interest in contributing to LeafMind! This guide will help yo
 
 2. **Install Dependencies**
    ```bash
+   # For persistence features, install RocksDB dependencies
+   # Ubuntu/Debian:
+   sudo apt-get install clang libclang-dev
+   
+   # macOS:
+   brew install llvm
+   
+   # Build the project
    cargo build
    ```
 
@@ -349,6 +358,55 @@ mod tests {
    }
    ```
 
+5. **Persistence Tests**: Test database operations
+   ```rust
+   #[tokio::test]
+   async fn test_persistent_memory_save_load() {
+       let temp_dir = tempfile::tempdir().unwrap();
+       let db_path = temp_dir.path().join("test_db");
+       
+       let persistent_memory = MemoryGraphFactory::persistent(
+           db_path.to_str().unwrap()
+       ).await.unwrap();
+       
+       let concept_id = persistent_memory.learn("Test concept".to_string()).await.unwrap();
+       persistent_memory.save().await.unwrap();
+       
+       // Create new instance to test persistence
+       let persistent_memory2 = MemoryGraphFactory::persistent(
+           db_path.to_str().unwrap()
+       ).await.unwrap();
+       
+       let results = persistent_memory2.recall(&concept_id, RecallQuery::default()).await.unwrap();
+       assert_eq!(results.len(), 1);
+       assert_eq!(results[0].concept.content, "Test concept");
+   }
+   ```
+
+6. **Async Tests**: Test concurrent operations
+   ```rust
+   #[tokio::test]
+   async fn test_concurrent_persistence_operations() {
+       let persistent_memory = Arc::new(create_persistent_memory().await);
+       
+       let handles: Vec<_> = (0..10).map(|i| {
+           let memory = Arc::clone(&persistent_memory);
+           tokio::spawn(async move {
+               memory.learn(format!("Concept {}", i)).await.unwrap();
+           })
+       }).collect();
+       
+       // Wait for all operations to complete
+       for handle in handles {
+           handle.await.unwrap();
+       }
+       
+       // Verify all concepts were stored
+       let total_concepts = persistent_memory.get_concept_count().await.unwrap();
+       assert_eq!(total_concepts, 10);
+   }
+   ```
+
 ### Running Tests
 
 ```bash
@@ -504,6 +562,14 @@ We welcome contributions in these areas:
 - **Research-specific metrics**
 - **Export formats for analysis**
 - **Integration with ML frameworks**
+
+### 💾 Persistence & Storage
+- **Additional storage backends (PostgreSQL, MongoDB)**
+- **Compression algorithms for storage efficiency**
+- **Distributed storage across multiple nodes**
+- **Import/export to different formats (JSON, CSV, GraphML)**
+- **Streaming persistence for real-time applications**
+- **Backup and recovery mechanisms**
 
 ## 📞 Community
 

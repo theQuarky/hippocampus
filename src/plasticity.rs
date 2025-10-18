@@ -2,7 +2,7 @@ use crate::memory_graph::MemoryGraph;
 use crate::types::{ConceptId, SynapticWeight};
 use chrono::{Duration, Utc};
 use std::collections::HashSet;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, trace};
 
 impl MemoryGraph {
     /// Apply Long-Term Depression (LTD) - decay unused connections

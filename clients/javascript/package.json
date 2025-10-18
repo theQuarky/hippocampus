@@ -1,0 +1,27 @@
+{
+  "name": "leafmind-client",
+  "version": "0.1.0",
+  "description": "JavaScript/TypeScript client for LeafMind neuromorphic memory database",
+  "main": "leafmind-client.js",
+  "type": "module",
+  "scripts": {
+    "test": "node example.js",
+    "example": "node example.js"
+  },
+  "keywords": [
+    "leafmind",
+    "neuromorphic",
+    "memory",
+    "database",
+    "cognitive",
+    "ai"
+  ],
+  "author": "LeafMind Team",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}

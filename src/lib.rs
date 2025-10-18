@@ -4,6 +4,9 @@ pub mod plasticity;
 pub mod consolidation;
 pub mod recall;
 pub mod forgetting;
+pub mod persistence;
+pub mod persistent_memory;
+pub mod server;
 
 // Re-export main types for convenience
 pub use types::{Concept, ConceptId, MemoryConfig, MemoryZone, SynapticWeight};
@@ -11,6 +14,10 @@ pub use memory_graph::{MemoryGraph, MemoryStats};
 pub use recall::{RecallQuery, RecallResult};
 pub use consolidation::ConsolidationStats;
 pub use forgetting::{ForgettingConfig, ForgettingStats};
+pub use persistence::{PersistentMemoryStore, PersistenceConfig, PersistenceStats, AutoSaveManager};
+pub use persistent_memory::{PersistentMemoryGraph, MemoryGraphFactory};
+pub use server::{LeafMindGrpcServer, HybridServer, HybridConfig, WebSocketServer};
+pub use server::grpc::ServerConfig as GrpcServerConfig;
 
 /// LeafMind - A hippocampus-inspired neuromorphic memory system
 /// 
@@ -19,14 +26,18 @@ pub use forgetting::{ForgettingConfig, ForgettingStats};
 /// - Memory consolidation (hippocampus → cortex)
 /// - Associative recall with spreading activation
 /// - Natural forgetting and interference
-/// - Working memory management
+/// - Working memory management 
+/// - **Persistent storage with RocksDB**
+/// - **Auto-save and backup capabilities**
+/// - **High-performance gRPC API with streaming support**
+/// - **Real-time WebSocket communication**
 /// 
-/// # Example
+/// # In-Memory Example
 /// 
 /// ```rust
 /// use leafmind::{MemoryGraph, MemoryConfig, RecallQuery};
 /// 
-/// // Create a new memory system
+/// // Create a new memory system (RAM only)
 /// let memory = MemoryGraph::new_with_defaults();
 /// 
 /// // Learn some concepts
@@ -41,10 +52,73 @@ pub use forgetting::{ForgettingConfig, ForgettingStats};
 /// // Recall related concepts
 /// let results = memory.recall(&pet_id, RecallQuery::default());
 /// println!("Pet recalls: {:?}", results.len());
+/// ```
 /// 
-/// // Consolidate memories (hippocampus → cortex)
-/// let stats = memory.consolidate_memory();
-/// println!("Consolidated {} connections", stats.promoted_to_long_term);
+/// # Persistent Memory Example
+/// 
+/// ```rust,no_run
+/// use leafmind::{PersistentMemoryGraph, MemoryConfig, PersistenceConfig, RecallQuery};
+/// use std::path::PathBuf;
+/// 
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+///     // Create persistent memory (automatically saves to disk)
+///     let mut memory = PersistentMemoryGraph::new_with_defaults().await?;
+///     
+///     // Learn concepts (automatically persisted)
+///     let concept1 = memory.learn("Persistent memory concept".to_string()).await?;
+///     let concept2 = memory.learn("Another persistent concept".to_string()).await?;
+///     
+///     // Create associations (persisted)
+///     memory.associate(concept1.clone(), concept2.clone()).await?;
+///     
+///     // Access concepts (updates timestamps in DB)
+///     memory.access_concept(&concept1).await?;
+///     
+///     // Force immediate save
+///     memory.force_save().await?;
+///     
+///     // Backup database
+///     memory.backup("backup.db").await?;
+///     
+///     // Get stats
+///     let (memory_stats, persistence_stats) = memory.get_combined_stats().await;
+///     println!("Concepts: {}, DB size: {} bytes", 
+///              memory_stats.total_concepts, 
+///              persistence_stats.database_size_bytes);
+///     
+///     Ok(())
+/// }
+/// ```
+/// 
+/// # Factory Pattern for Different Use Cases
+/// 
+/// ```rust,no_run
+/// use leafmind::MemoryGraphFactory;
+/// 
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+///     // High-performance setup (larger cache, frequent saves)
+///     let hp_memory = MemoryGraphFactory::create_high_performance().await?;
+///     
+///     // Research optimized setup (balanced performance/accuracy)
+///     let research_memory = MemoryGraphFactory::create_research_optimized().await?;
+///     
+///     // Custom configuration
+///     let custom_memory = MemoryGraphFactory::create_persistent(
+///         MemoryConfig::default(),
+///         PersistenceConfig {
+///             db_path: std::path::PathBuf::from("my_brain.db"),
+///             auto_save_interval_seconds: 60, // Save every minute
+///             batch_size: 1000,
+///             enable_compression: true,
+///             max_cache_size: 100000,
+///             enable_wal: true,
+///         }
+///     ).await?;
+///     
+///     Ok(())
+/// }
 /// ```
 
 #[cfg(test)]
@@ -96,5 +170,110 @@ mod tests {
         let stats = memory.forget(config);
         // Forgetting stats should be initialized
         assert!(stats.concepts_forgotten >= 0);
+    }
+
+    #[tokio::test]
+    async fn test_persistent_memory_basic() {
+        use std::path::PathBuf;
+        use tempfile::TempDir;
+        
+        // Create temporary directory for test database
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        
+        let persistence_config = PersistenceConfig {
+            db_path: db_path.clone(),
+            auto_save_interval_seconds: 0, // Disable auto-save for test
+            batch_size: 100,
+            enable_compression: false,
+            max_cache_size: 1000,
+            enable_wal: false,
+        };
+
+        // Create persistent memory
+        let memory = PersistentMemoryGraph::new(
+            MemoryConfig::default(),
+            persistence_config
+        ).await.unwrap();
+
+        // Test basic operations
+        let concept1 = memory.learn("Persistent concept 1".to_string()).await.unwrap();
+        let concept2 = memory.learn("Persistent concept 2".to_string()).await.unwrap();
+        
+        memory.associate(concept1.clone(), concept2.clone()).await.unwrap();
+        memory.access_concept(&concept1).await.unwrap();
+        
+        // Force save
+        memory.force_save().await.unwrap();
+        
+        // Verify concept exists
+        assert!(memory.get_concept(&concept1).is_some());
+        assert!(memory.get_concept(&concept2).is_some());
+        
+        let stats = memory.get_stats();
+        assert_eq!(stats.total_concepts, 2);
+    }
+
+    #[tokio::test]
+    async fn test_persistence_load_save() {
+        use std::path::PathBuf;
+        use tempfile::TempDir;
+        
+        // Create temporary directory for test database
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test_load_save.db");
+        
+        let persistence_config = PersistenceConfig {
+            db_path: db_path.clone(),
+            auto_save_interval_seconds: 0,
+            batch_size: 100,
+            enable_compression: false,
+            max_cache_size: 1000,
+            enable_wal: false,
+        };
+
+        let concept_content = "Persistent test concept".to_string();
+
+        // Create first instance and save data
+        {
+            let memory = PersistentMemoryGraph::new(
+                MemoryConfig::default(),
+                persistence_config.clone()
+            ).await.unwrap();
+
+            let concept_id = memory.learn(concept_content.clone()).await.unwrap();
+            memory.force_save().await.unwrap();
+        }
+
+        // Create second instance and verify data is loaded
+        {
+            let memory = PersistentMemoryGraph::new(
+                MemoryConfig::default(),
+                persistence_config
+            ).await.unwrap();
+
+            let stats = memory.get_stats();
+            assert_eq!(stats.total_concepts, 1);
+            
+            // Find the concept by content
+            let all_ids = memory.get_all_concept_ids();
+            assert_eq!(all_ids.len(), 1);
+            
+            let concept = memory.get_concept(&all_ids[0]).unwrap();
+            assert_eq!(concept.content, concept_content);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_factory_patterns() {
+        // Test factory creation methods
+        let _hp_memory = MemoryGraphFactory::create_high_performance().await;
+        let _research_memory = MemoryGraphFactory::create_research_optimized().await;
+        let _default_memory = MemoryGraphFactory::create_persistent_default().await;
+        
+        // All should succeed in creation
+        assert!(_hp_memory.is_ok());
+        assert!(_research_memory.is_ok());
+        assert!(_default_memory.is_ok());
     }
 }

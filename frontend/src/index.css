@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for LeafMind */
+.neural-bg {
+  background: linear-gradient(135deg, #0ea5e9 0%, #d946ef 100%);
+}
+
+/* Dark mode neural background */
+.dark .neural-bg {
+  background: linear-gradient(135deg, #1e40af 0%, #7c3aed 100%);
+}
+
+.concept-node {
+  transition: all 0.3s ease;
+}
+
+.concept-node:hover {
+  transform: scale(1.1);
+  filter: brightness(1.2);
+}
+
+.annotation-highlight {
+  background-color: rgba(234, 179, 8, 0.3);
+  border-radius: 2px;
+  padding: 1px 2px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.annotation-highlight:hover {
+  background-color: rgba(234, 179, 8, 0.5);
+}
+
+/* Dark mode annotation highlights */
+.dark .annotation-highlight {
+  background-color: rgba(251, 191, 36, 0.2);
+}
+
+.dark .annotation-highlight:hover {
+  background-color: rgba(251, 191, 36, 0.4);
+}
+
+/* Smooth transitions for dark mode */
+* {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+/* Custom scrollbars for dark mode */
+.dark ::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #374151;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #6b7280;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}

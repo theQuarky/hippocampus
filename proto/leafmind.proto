@@ -1,0 +1,248 @@
+syntax = "proto3";
+
+package leafmind.v1;
+
+// Service definition for LeafMind neuromorphic memory operations
+service LeafMindService {
+  // Basic concept operations
+  rpc LearnConcept(LearnConceptRequest) returns (LearnConceptResponse);
+  rpc GetConcept(GetConceptRequest) returns (GetConceptResponse);
+  rpc ListConcepts(ListConceptsRequest) returns (ListConceptsResponse);
+  rpc AccessConcept(AccessConceptRequest) returns (AccessConceptResponse);
+  
+  // Association operations
+  rpc CreateAssociation(CreateAssociationRequest) returns (CreateAssociationResponse);
+  rpc GetAssociations(GetAssociationsRequest) returns (GetAssociationsResponse);
+  
+  // Memory recall operations
+  rpc RecallMemory(RecallRequest) returns (RecallResponse);
+  rpc StreamingRecall(RecallRequest) returns (stream RecallResult);
+  
+  // Memory management
+  rpc ConsolidateMemory(ConsolidateRequest) returns (ConsolidateResponse);
+  rpc GetMemoryStats(GetStatsRequest) returns (MemoryStatsResponse);
+  
+  // Real-time streaming operations
+  rpc StreamMemoryUpdates(stream MemoryUpdateRequest) returns (stream MemoryUpdateResponse);
+  rpc WatchConcept(WatchConceptRequest) returns (stream ConceptUpdateEvent);
+  
+  // Health and diagnostics
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Core data types
+message ConceptId {
+  string uuid = 1;
+}
+
+message Concept {
+  ConceptId id = 1;
+  string content = 2;
+  int64 created_at = 3;
+  int64 last_accessed = 4;
+  uint64 access_count = 5;
+  map<string, string> metadata = 6;
+}
+
+message Association {
+  ConceptId from_concept = 1;
+  ConceptId to_concept = 2;
+  double strength = 3;
+  string association_type = 4;
+  int64 created_at = 5;
+  bool is_bidirectional = 6;
+}
+
+// Request/Response messages
+message LearnConceptRequest {
+  string content = 1;
+  map<string, string> metadata = 2;
+  repeated string tags = 3;
+}
+
+message LearnConceptResponse {
+  ConceptId concept_id = 1;
+  string message = 2;
+  bool success = 3;
+}
+
+message GetConceptRequest {
+  ConceptId concept_id = 1;
+  bool include_associations = 2;
+}
+
+message GetConceptResponse {
+  Concept concept = 1;
+  repeated Association associations = 2;
+  bool found = 3;
+}
+
+message ListConceptsRequest {
+  uint32 page = 1;
+  uint32 page_size = 2;
+  string filter = 3;
+  bool include_metadata = 4;
+}
+
+message ListConceptsResponse {
+  repeated Concept concepts = 1;
+  uint32 total_count = 2;
+  uint32 page = 3;
+  uint32 page_size = 4;
+  bool has_more = 5;
+}
+
+message AccessConceptRequest {
+  ConceptId concept_id = 1;
+}
+
+message AccessConceptResponse {
+  Concept updated_concept = 1;
+  bool success = 2;
+}
+
+message CreateAssociationRequest {
+  ConceptId from_concept = 1;
+  ConceptId to_concept = 2;
+  double strength = 3;
+  string association_type = 4;
+  bool bidirectional = 5;
+}
+
+message CreateAssociationResponse {
+  bool success = 1;
+  string message = 2;
+  Association created_association = 3;
+}
+
+message GetAssociationsRequest {
+  ConceptId concept_id = 1;
+  uint32 max_results = 2;
+  double min_strength = 3;
+}
+
+message GetAssociationsResponse {
+  repeated Association associations = 1;
+  uint32 total_count = 2;
+}
+
+message RecallRequest {
+  oneof source {
+    ConceptId source_concept_id = 1;
+    string content_query = 2;
+  }
+  uint32 max_results = 3;
+  double min_relevance = 4;
+  uint32 max_path_length = 5;
+  bool include_semantic_similarity = 6;
+  bool use_recency_boost = 7;
+  uint32 exploration_breadth = 8;
+}
+
+message RecallResult {
+  Concept concept = 1;
+  double relevance_score = 2;
+  uint32 path_length = 3;
+  double connection_strength = 4;
+  repeated string path = 5;
+}
+
+message RecallResponse {
+  repeated RecallResult results = 1;
+  uint32 total_found = 2;
+  uint64 query_time_ms = 3;
+  ConceptId source_concept_id = 4;
+}
+
+message ConsolidateRequest {
+  bool force_consolidation = 1;
+  double min_strength_threshold = 2;
+}
+
+message ConsolidateResponse {
+  uint32 concepts_consolidated = 1;
+  uint32 associations_strengthened = 2;
+  uint64 consolidation_time_ms = 3;
+  bool success = 4;
+}
+
+message GetStatsRequest {
+  bool include_persistence_stats = 1;
+}
+
+message MemoryStatsResponse {
+  uint64 total_concepts = 1;
+  uint64 short_term_concepts = 2;
+  uint64 long_term_concepts = 3;
+  uint64 total_associations = 4;
+  uint64 short_term_associations = 5;
+  uint64 long_term_associations = 6;
+  uint64 memory_usage_bytes = 7;
+  double consolidation_ratio = 8;
+  PersistenceStats persistence_stats = 9;
+}
+
+message PersistenceStats {
+  uint64 database_size_bytes = 1;
+  uint64 concepts_persisted = 2;
+  uint64 associations_persisted = 3;
+  int64 last_save_timestamp = 4;
+  uint32 pending_operations = 5;
+}
+
+// Real-time streaming messages
+message MemoryUpdateRequest {
+  oneof update_type {
+    LearnConceptRequest learn = 1;
+    CreateAssociationRequest associate = 2;
+    AccessConceptRequest access = 3;
+  }
+}
+
+message MemoryUpdateResponse {
+  oneof response_type {
+    LearnConceptResponse learn_response = 1;
+    CreateAssociationResponse associate_response = 2;
+    AccessConceptResponse access_response = 3;
+  }
+  int64 timestamp = 4;
+}
+
+message WatchConceptRequest {
+  ConceptId concept_id = 1;
+  bool include_associations = 2;
+}
+
+message ConceptUpdateEvent {
+  enum UpdateType {
+    CONCEPT_ACCESSED = 0;
+    ASSOCIATION_ADDED = 1;
+    ASSOCIATION_REMOVED = 2;
+    CONCEPT_MODIFIED = 3;
+    CONSOLIDATION_APPLIED = 4;
+  }
+  
+  UpdateType update_type = 1;
+  ConceptId concept_id = 2;
+  Concept updated_concept = 3;
+  Association updated_association = 4;
+  int64 timestamp = 5;
+}
+
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+    SERVICE_UNKNOWN = 3;
+  }
+  
+  ServingStatus status = 1;
+  string version = 2;
+  uint64 uptime_seconds = 3;
+  MemoryStatsResponse memory_stats = 4;
+}

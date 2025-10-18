@@ -11,7 +11,7 @@ Add LeafMind to your `Cargo.toml`:
 ```toml
 [dependencies]
 leafmind = "0.1.0"
-tokio = { version = "1.0", features = ["full"] }  # For async operations (optional)
+tokio = { version = "1.0", features = ["full"] }  # Required for persistent storage
 tracing = "0.1"                                   # For logging (optional)
 tracing-subscriber = "0.3"                        # For logging (optional)
 ```
@@ -153,6 +153,152 @@ let seed_concepts = vec![cat_id, dog_id];
 let results = memory.spreading_activation_recall(&seed_concepts, 0.2, 5);
 
 println!("Neural activation spread to {} concepts", results.len());
+```
+
+## 💾 **NEW: Persistent Memory (Database Storage)**
+
+### Your First Persistent Memory System
+
+LeafMind can now permanently store memories to disk! Here's how to create a persistent version:
+
+```rust
+use leafmind::{PersistentMemoryGraph, MemoryConfig, PersistenceConfig};
+use std::path::PathBuf;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // 1. Create a persistent memory system (automatically saves to disk)
+    let memory = PersistentMemoryGraph::new_with_defaults().await?;
+    
+    // 2. Learn concepts (automatically persisted)
+    let ai_id = memory.learn("Artificial Intelligence: Computer systems that mimic human thinking".to_string()).await?;
+    let ml_id = memory.learn("Machine Learning: AI systems that improve through experience".to_string()).await?;
+    let dl_id = memory.learn("Deep Learning: ML using neural networks with many layers".to_string()).await?;
+    
+    // 3. Create associations (automatically saved)
+    memory.associate(ai_id.clone(), ml_id.clone()).await?;
+    memory.associate(ml_id.clone(), dl_id.clone()).await?;
+    
+    // 4. Access concepts (updates database)
+    memory.access_concept(&ai_id).await?;
+    
+    // 5. Get statistics
+    let (memory_stats, persistence_stats) = memory.get_combined_stats().await;
+    println!("📊 Persistent Memory Stats:");
+    println!("  Concepts: {}", memory_stats.total_concepts);
+    println!("  Database size: {} bytes", persistence_stats.database_size_bytes);
+    println!("  Cache hit rate: {:.1}%", persistence_stats.cache_hit_rate * 100.0);
+    
+    // 6. Force save (optional - auto-saves every 5 minutes by default)
+    memory.force_save().await?;
+    
+    // 7. Create backup
+    memory.backup("my_ai_knowledge_backup.db").await?;
+    println!("✅ Knowledge permanently stored and backed up!");
+    
+    Ok(())
+    // Memory is automatically saved when program ends
+}
+```
+
+### Quick Persistent Setup Options
+
+```rust
+use leafmind::MemoryGraphFactory;
+
+#[tokio::main] 
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Option 1: Default persistent memory
+    let memory1 = PersistentMemoryGraph::new_with_defaults().await?;
+    
+    // Option 2: High-performance setup (frequent saves, large cache)
+    let memory2 = MemoryGraphFactory::create_high_performance().await?;
+    
+    // Option 3: Research-optimized (balanced accuracy/speed)
+    let memory3 = MemoryGraphFactory::create_research_optimized().await?;
+    
+    // Option 4: Custom configuration
+    let memory4 = MemoryGraphFactory::create_persistent(
+        MemoryConfig::default(),
+        PersistenceConfig {
+            db_path: PathBuf::from("my_brain.db"),
+            auto_save_interval_seconds: 30,  // Save every 30 seconds
+            enable_compression: true,        // Compress data
+            max_cache_size: 50000,          // 50k items in memory
+            ..PersistenceConfig::default()
+        }
+    ).await?;
+    
+    Ok(())
+}
+```
+
+### Key Persistent Features
+
+#### 🔄 **Auto-Save** 
+Your memories are automatically saved every 5 minutes (configurable).
+
+#### 🛡️ **Crash Recovery**
+Write-Ahead Logging ensures no data loss during unexpected shutdowns.
+
+#### 💾 **Backup & Restore**
+```rust
+// Create backup
+memory.backup("backup.db").await?;
+
+// Restore from backup (creates new instance)
+let mut restored_memory = PersistentMemoryGraph::new_with_defaults().await?;
+restored_memory.restore("backup.db").await?;
+```
+
+#### ⚡ **Performance**
+- Intelligent caching for fast access
+- Batch operations for efficiency  
+- Compression for storage savings
+- Concurrent read/write support
+
+#### 📊 **Monitoring**
+```rust
+let (memory_stats, persistence_stats) = memory.get_combined_stats().await;
+println!("Cache hit rate: {:.1}%", persistence_stats.cache_hit_rate * 100.0);
+println!("Database size: {} bytes", persistence_stats.database_size_bytes);
+```
+
+### 🔄 **Session Persistence Demo**
+
+The real power of persistent memory is that your knowledge survives program restarts:
+
+```rust
+// Session 1: Create and save knowledge
+async fn session_1() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let memory = PersistentMemoryGraph::new_with_defaults().await?;
+    
+    let rust_id = memory.learn("Rust: Systems programming language focused on safety".to_string()).await?;
+    let memory_id = memory.learn("Memory management: Controlling how programs use RAM".to_string()).await?;
+    memory.associate(rust_id, memory_id).await?;
+    
+    memory.force_save().await?;
+    println!("💾 Knowledge saved to database");
+    Ok(())
+}
+
+// Session 2: Load and use existing knowledge  
+async fn session_2() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let memory = PersistentMemoryGraph::new_with_defaults().await?;
+    
+    let stats = memory.get_stats();
+    println!("🔄 Loaded {} concepts from previous session!", stats.total_concepts);
+    
+    // Your memories are still there!
+    let concept_ids = memory.get_all_concept_ids();
+    for id in concept_ids.iter().take(2) {
+        if let Some(concept) = memory.get_concept(id) {
+            println!("📚 Remembered: {}", concept.content);
+        }
+    }
+    
+    Ok(())
+}
 ```
 
 ## 🧬 Advanced Brain-Like Features

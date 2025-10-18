@@ -1,0 +1,26 @@
+[package]
+name = "leafmind"
+version = "0.1.0"
+edition = "2021"
+description = "A hippocampus-inspired neuromorphic memory system"
+authors = ["Hiren <hiren@example.com>"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+uuid = { version = "1.0", features = ["v4", "v5", "serde"] }
+dashmap = "5.5"
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# API Server dependencies only (no persistence)
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+[[bin]]
+name = "leafmind-server-memory"
+path = "src/bin/leafmind-server-memory.rs"

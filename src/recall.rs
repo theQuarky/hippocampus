@@ -1,35 +1,39 @@
 use crate::memory_graph::MemoryGraph;
 use crate::types::{Concept, ConceptId, SynapticWeight};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use tracing::{debug, trace};
+use tracing::debug;
 
 /// A recall result with associated concepts and their relevance scores
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecallResult {
     pub concept: Concept,
     pub relevance_score: f64,
     pub association_path: Vec<ConceptId>,
     pub connection_strength: f64,
+    pub path_length: usize,
 }
 
 /// Recall query configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecallQuery {
-    pub max_results: Option<usize>,
+    pub max_results: usize,
     pub min_relevance: f64,
     pub max_path_length: usize,
     pub include_semantic_similarity: bool,
-    pub boost_recent_memories: bool,
+    pub use_recency_boost: bool,
+    pub exploration_breadth: usize,
 }
 
 impl Default for RecallQuery {
     fn default() -> Self {
         Self {
-            max_results: Some(10),
+            max_results: 10,
             min_relevance: 0.1,
             max_path_length: 3,
             include_semantic_similarity: false,
-            boost_recent_memories: true,
+            use_recency_boost: true,
+            exploration_breadth: 5,
         }
     }
 }
@@ -77,15 +81,16 @@ impl MemoryGraph {
                     let mut boosted_score = score;
 
                     // Boost recent memories if requested
-                    if query.boost_recent_memories {
+                    if query.use_recency_boost {
                         boosted_score *= self.calculate_recency_boost(&concept);
                     }
 
                     results.push(RecallResult {
                         concept,
                         relevance_score: boosted_score,
-                        association_path: path,
+                        association_path: path.clone(),
                         connection_strength: strength,
+                        path_length: path.len(),
                     });
                 }
             }
@@ -95,9 +100,7 @@ impl MemoryGraph {
         results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap());
 
         // Limit results
-        if let Some(max_results) = query.max_results {
-            results.truncate(max_results);
-        }
+        results.truncate(query.max_results);
 
         debug!("Recall completed with {} results", results.len());
         results
@@ -257,7 +260,7 @@ impl MemoryGraph {
             if similarity_score >= recall_query.min_relevance {
                 let mut boosted_score = similarity_score;
 
-                if recall_query.boost_recent_memories {
+                if recall_query.use_recency_boost {
                     boosted_score *= self.calculate_recency_boost(concept);
                 }
 
@@ -266,6 +269,7 @@ impl MemoryGraph {
                     relevance_score: boosted_score,
                     association_path: vec![concept.id.clone()],
                     connection_strength: similarity_score,
+                    path_length: 1,
                 });
             }
         }
@@ -274,9 +278,7 @@ impl MemoryGraph {
         results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap());
 
         // Limit results
-        if let Some(max_results) = recall_query.max_results {
-            results.truncate(max_results);
-        }
+        results.truncate(recall_query.max_results);
 
         debug!("Content-based recall completed with {} results", results.len());
         results
@@ -358,6 +360,7 @@ impl MemoryGraph {
                         relevance_score: activation,
                         association_path: vec![concept_id],
                         connection_strength: activation,
+                        path_length: 1,
                     });
                 }
             }

@@ -1,9 +1,9 @@
-use crate::types::{Concept, ConceptId, MemoryConfig, MemoryZone, SynapticEdge, SynapticWeight};
+use crate::types::{Concept, ConceptId, MemoryConfig, SynapticEdge};
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
-use std::collections::{HashMap, HashSet};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, trace};
 
 /// Core memory graph implementing neuromorphic memory principles
 #[derive(Debug)]
@@ -175,7 +175,7 @@ impl MemoryGraph {
 }
 
 /// Memory system statistics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryStats {
     pub total_concepts: usize,
     pub short_term_connections: usize,

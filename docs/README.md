@@ -10,6 +10,7 @@ Welcome to the LeafMind documentation! This neuromorphic memory system is inspir
 |----------|-------------|----------|
 | **[Quick Start Guide](QUICK_START.md)** | Installation, basic usage, and first examples | New users wanting to try LeafMind immediately |
 | **[README](../README.md)** | Project overview, features, and installation | Understanding what LeafMind does |
+| **[Persistence Guide](PERSISTENCE.md)** | **NEW!** Complete guide to persistent storage and database features | Using LeafMind as a durable database |
 
 ### 🏗️ Understanding LeafMind
 
@@ -24,6 +25,7 @@ Welcome to the LeafMind documentation! This neuromorphic memory system is inspir
 | Document | Description | Learning Focus |
 |----------|-------------|----------------|
 | **[Examples Collection](EXAMPLES.md)** | Practical use cases and implementation patterns | Applied learning with code |
+| **[Persistence Guide](PERSISTENCE.md)** | **NEW!** Database storage, auto-save, backup/restore | Production deployment |
 | **[Contributing Guide](CONTRIBUTING.md)** | How to contribute new features and improvements | Community development |
 
 ---
@@ -32,6 +34,12 @@ Welcome to the LeafMind documentation! This neuromorphic memory system is inspir
 
 ### 👋 **I'm New to LeafMind**
 Start with the **[Quick Start Guide](QUICK_START.md)** to get LeafMind running and see it in action within 5 minutes.
+
+### 🔧 **I Want to Use LeafMind in Production**
+Start with the **[Persistence Guide](PERSISTENCE.md)** to learn about database storage, then check the **[API Reference](API_REFERENCE.md)** for production features.
+
+### 💾 **I Need Persistent Storage**
+The **[Persistence Guide](PERSISTENCE.md)** covers everything about using LeafMind as a durable database with auto-save, backup, and recovery features.
 
 ### 🔧 **I Want to Use LeafMind**
 Check out the **[API Reference](API_REFERENCE.md)** for all available functions and the **[Examples Collection](EXAMPLES.md)** for practical implementations.
@@ -65,6 +73,8 @@ The **[Architecture Guide](ARCHITECTURE.md)** covers the scientific basis, and *
 - **High Performance**: Optimized data structures for real-time applications
 - **Flexible Configuration**: Tunable parameters for different use cases
 - **Rich API**: Easy-to-use interface with comprehensive documentation
+- **🆕 Persistent Storage**: RocksDB-backed database for permanent memory storage
+- **🆕 Auto-Save**: Configurable automatic saving and backup capabilities
 
 ---
 

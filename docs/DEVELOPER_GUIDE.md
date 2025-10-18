@@ -9,13 +9,14 @@ Welcome to the LeafMind codebase! This documentation will help you understand th
 3. [Core Concepts](#core-concepts)
 4. [Data Flow](#data-flow)
 5. [Key Algorithms](#key-algorithms)
-6. [Adding New Features](#adding-new-features)
-7. [Testing Strategy](#testing-strategy)
-8. [Performance Considerations](#performance-considerations)
+6. [Persistence Architecture](#persistence-architecture)
+7. [Adding New Features](#adding-new-features)
+8. [Testing Strategy](#testing-strategy)
+9. [Performance Considerations](#performance-considerations)
 
 ## 🏗️ Architecture Overview
 
-LeafMind follows a modular, brain-inspired architecture:
+LeafMind follows a modular, brain-inspired architecture with both in-memory and persistent storage:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -26,6 +27,9 @@ LeafMind follows a modular, brain-inspired architecture:
 ├─────────────────────┼───────────────────┼───────────────────┤
 │      Recall         │    Forgetting     │      Types        │
 │   (Retrieval)       │   (Cleanup)       │   (Data Models)   │
+├─────────────────────┼───────────────────┼───────────────────┤
+│    Persistence      │ Persistent Memory │                   │
+│   (RocksDB Store)   │  (Database API)   │                   │
 └─────────────────────┴───────────────────┴───────────────────┘
 ```
 
@@ -36,6 +40,8 @@ LeafMind follows a modular, brain-inspired architecture:
 3. **Modularity**: Each brain function is a separate module
 4. **Configurability**: Tunable parameters for different use cases
 5. **Performance**: Efficient algorithms with automatic optimization
+6. **Persistence**: Optional RocksDB-based storage for durability
+7. **Hybrid Architecture**: Hot data in memory, cold data on disk
 
 ## 🗂️ Module Structure
 
@@ -48,7 +54,9 @@ src/
 ├── plasticity.rs       # Synaptic plasticity (LTP/LTD) algorithms
 ├── consolidation.rs    # Hippocampus-to-cortex memory transfer
 ├── recall.rs           # Memory retrieval and associative recall
-└── forgetting.rs       # Memory decay and cleanup mechanisms
+├── forgetting.rs       # Memory decay and cleanup mechanisms
+├── persistence.rs      # RocksDB-based persistent storage engine
+└── persistent_memory.rs # High-level persistent memory interface
 ```
 
 ### Module Dependencies
@@ -57,15 +65,21 @@ src/
 graph TD
     A[lib.rs] --> B[types.rs]
     A --> C[memory_graph.rs]
+    A --> H[persistence.rs]
+    A --> I[persistent_memory.rs]
     C --> D[plasticity.rs]
     C --> E[consolidation.rs]
     C --> F[recall.rs]
     C --> G[forgetting.rs]
+    I --> C
+    I --> H
     B --> C
     B --> D
     B --> E
     B --> F
     B --> G
+    B --> H
+    B --> I
 ```
 
 ## 🧠 Core Concepts
@@ -269,7 +283,101 @@ let decay_amount = 1.0 - retention_rate
 **Purpose**: Time-based natural forgetting
 **Inspiration**: Hermann Ebbinghaus's memory research
 
-## 🔧 Adding New Features
+## � Persistence Architecture
+
+LeafMind provides both in-memory and persistent storage options through a layered architecture.
+
+### 1. PersistentMemoryStore (`persistence.rs`)
+
+The low-level storage engine using RocksDB:
+
+```rust
+pub struct PersistentMemoryStore {
+    db: Arc<DB>,                                    // RocksDB instance
+    cache: DashMap<StorageKey, Vec<u8>>,           // LRU cache
+    config: PersistenceConfig,                      // Configuration
+    stats: Arc<RwLock<StorageStats>>,              // Performance metrics
+}
+```
+
+**Key Features:**
+- **Batch Operations**: Efficient bulk writes and reads
+- **Caching**: In-memory cache for frequently accessed data
+- **Compression**: LZ4 compression for storage efficiency
+- **Backup/Restore**: Full database backup and restore capabilities
+- **Statistics**: Detailed performance monitoring
+
+### 2. PersistentMemoryGraph (`persistent_memory.rs`)
+
+High-level persistent memory interface:
+
+```rust
+pub struct PersistentMemoryGraph {
+    memory_graph: MemoryGraph,                      // In-memory operations
+    storage: PersistentMemoryStore,                 // Persistent storage
+    auto_save_manager: Option<AutoSaveManager>,     // Background saving
+    pending_changes: Arc<RwLock<HashSet<ConceptId>>>, // Dirty tracking
+}
+```
+
+**Key Features:**
+- **Async API**: Non-blocking database operations
+- **Auto-save**: Configurable background persistence
+- **Dirty Tracking**: Only saves modified data
+- **Session Persistence**: Maintains state across restarts
+- **Hybrid Storage**: Hot data in memory, cold data on disk
+
+### 3. Storage Key System
+
+Efficient key-value mapping for different data types:
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum StorageKey {
+    Concept(ConceptId),                            // Individual concepts
+    ShortTermEdge(ConceptId, ConceptId),          // Short-term connections
+    LongTermEdge(ConceptId, ConceptId),           // Long-term connections
+    WorkingMemory(ConceptId),                     // Working memory entries
+    Metadata(String),                             // System metadata
+}
+```
+
+### 4. Factory Pattern for Configuration
+
+Pre-configured setups for common use cases:
+
+```rust
+impl MemoryGraphFactory {
+    pub fn in_memory() -> MemoryGraph { ... }              // RAM only
+    pub fn persistent(path: &str) -> PersistentMemoryGraph { ... } // Full persistence
+    pub fn cached_persistent(path: &str) -> PersistentMemoryGraph { ... } // Hybrid
+    pub fn auto_save(path: &str, interval: Duration) -> PersistentMemoryGraph { ... } // Auto-save
+}
+```
+
+### Persistence Data Flow
+
+```
+1. Operation -> PersistentMemoryGraph.method()
+2. Update in-memory MemoryGraph
+3. Mark changes in pending_changes (dirty tracking)
+4. Auto-save or manual save() -> PersistentMemoryStore
+5. Batch write to RocksDB with caching
+6. Update statistics and clear dirty flags
+```
+
+### Storage Schema
+
+```
+Key Format:
+- concept:{id} -> Concept (bincode serialized)
+- st_edge:{from}:{to} -> SynapticEdge (short-term)
+- lt_edge:{from}:{to} -> SynapticEdge (long-term)  
+- working:{id} -> DateTime<Utc>
+- meta:{key} -> String (configuration/metadata)
+```
+
+## �🔧 Adding New Features
 
 ### 1. Adding a New Plasticity Mechanism
 
@@ -349,6 +457,126 @@ impl Concept {
 ```
 
 **Step 2**: Use metadata in recall/consolidation algorithms
+
+### 5. Adding Persistence Features
+
+**Step 1**: Extend the storage key system in `persistence.rs`
+```rust
+pub enum StorageKey {
+    // existing variants...
+    YourNewDataType(ConceptId, String),  // Add your key type
+}
+
+impl StorageKey {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            // existing matches...
+            StorageKey::YourNewDataType(id, key) => {
+                format!("your_data:{}:{}", id, key).into_bytes()
+            }
+        }
+    }
+}
+```
+
+**Step 2**: Add persistence methods to `PersistentMemoryGraph`
+```rust
+impl PersistentMemoryGraph {
+    pub async fn store_your_data(&self, id: ConceptId, data: YourData) -> Result<()> {
+        let key = StorageKey::YourNewDataType(id, "your_key".to_string());
+        let value = bincode::serialize(&data)?;
+        self.storage.store(key, value).await?;
+        Ok(())
+    }
+    
+    pub async fn load_your_data(&self, id: ConceptId) -> Result<Option<YourData>> {
+        let key = StorageKey::YourNewDataType(id, "your_key".to_string());
+        if let Some(value) = self.storage.load(&key).await? {
+            let data = bincode::deserialize(&value)?;
+            Ok(Some(data))
+        } else {
+            Ok(None)
+        }
+    }
+}
+```
+
+**Step 3**: Add configuration options to `PersistenceConfig`
+```rust
+pub struct PersistenceConfig {
+    // existing fields...
+    pub your_feature_enabled: bool,
+    pub your_cache_size: usize,
+}
+```
+
+**Step 4**: Update the factory methods to support your feature
+
+### 6. Adding Custom Serialization
+
+**Step 1**: Implement Serde traits for your types
+```rust
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YourCustomType {
+    pub field1: String,
+    pub field2: Vec<f64>,
+}
+```
+
+**Step 2**: Add conversion methods if needed
+```rust
+impl YourCustomType {
+    pub fn to_storage_format(&self) -> Vec<u8> {
+        bincode::serialize(self).unwrap()
+    }
+    
+    pub fn from_storage_format(data: &[u8]) -> Result<Self> {
+        bincode::deserialize(data).map_err(Into::into)
+    }
+}
+```
+
+### 7. Performance Optimization
+
+**Step 1**: Add custom caching for your data
+```rust
+pub struct YourCustomCache {
+    cache: DashMap<YourKey, YourValue>,
+    max_size: usize,
+}
+
+impl YourCustomCache {
+    pub fn get_or_load<F>(&self, key: &YourKey, loader: F) -> Result<YourValue>
+    where
+        F: FnOnce() -> Result<YourValue>,
+    {
+        if let Some(value) = self.cache.get(key) {
+            Ok(value.clone())
+        } else {
+            let value = loader()?;
+            self.cache.insert(key.clone(), value.clone());
+            Ok(value)
+        }
+    }
+}
+```
+
+**Step 2**: Add batch operations for efficiency
+```rust
+impl PersistentMemoryGraph {
+    pub async fn batch_store_your_data(&self, items: Vec<(YourKey, YourData)>) -> Result<()> {
+        let mut batch = WriteBatch::default();
+        for (key, data) in items {
+            let storage_key = StorageKey::from(key);
+            let value = bincode::serialize(&data)?;
+            batch.put(storage_key.to_bytes(), value);
+        }
+        self.storage.write_batch(batch).await
+    }
+}
+```
 
 ## 🧪 Testing Strategy
 

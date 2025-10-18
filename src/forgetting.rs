@@ -1,8 +1,8 @@
 use crate::memory_graph::MemoryGraph;
-use crate::types::{ConceptId, SynapticWeight};
+use crate::types::ConceptId;
 use chrono::{Duration, Utc};
 use std::collections::{HashMap, HashSet};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Forgetting statistics
 #[derive(Debug, Clone)]

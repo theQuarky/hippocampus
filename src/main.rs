@@ -1,19 +1,106 @@
 use leafmind::{
-    ForgettingConfig, MemoryConfig, MemoryGraph, RecallQuery, ConceptId
+    ForgettingConfig, MemoryConfig, MemoryGraph, RecallQuery,
+    LeafMindGrpcServer, GrpcServerConfig, HybridServer, HybridConfig
 };
 use std::collections::HashMap;
+use std::env;
 use tracing::{info, Level};
 use tracing_subscriber;
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_max_level(Level::INFO)
         .init();
 
-    println!("🧠 LeafMind - Hippocampus-Inspired Memory System Demo");
-    println!("==================================================\n");
+    // Check command line arguments for server mode
+    let args: Vec<String> = env::args().collect();
+    
+    match args.get(1).map(|s| s.as_str()) {
+        Some("grpc") => {
+            info!("🧠 Starting LeafMind gRPC Server");
+            start_grpc_server().await?;
+        },
+        Some("hybrid") => {
+            info!("🧠 Starting LeafMind Hybrid Server (gRPC + WebSocket)");
+            start_hybrid_server().await?;
+        },
+        Some("demo") | None => {
+            println!("🧠 LeafMind - Hippocampus-Inspired Memory System Demo");
+            println!("==================================================\n");
+            run_memory_demo().await?;
+        },
+        Some("help") | Some("--help") | Some("-h") => {
+            print_help();
+        },
+        Some(cmd) => {
+            println!("❌ Unknown command: {}", cmd);
+            print_help();
+        }
+    }
+    
+    Ok(())
+}
 
+fn print_help() {
+    println!("🧠 LeafMind - Hippocampus-Inspired Memory System");
+    println!("==============================================\n");
+    println!("Usage: leafmind [COMMAND]\n");
+    println!("Commands:");
+    println!("  demo     Run interactive memory system demonstration (default)");
+    println!("  grpc     Start gRPC API server on port 50051");
+    println!("  hybrid   Start hybrid server (gRPC + WebSocket) on ports 50051 & 8080");
+    println!("  help     Show this help message\n");
+    println!("Examples:");
+    println!("  cargo run                # Run demo");
+    println!("  cargo run -- grpc        # Start gRPC server");
+    println!("  cargo run -- hybrid      # Start hybrid server");
+}
+
+async fn start_grpc_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let config = GrpcServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 50051,
+        max_concurrent_streams: 1000,
+        max_message_size: 4 * 1024 * 1024,
+        keepalive_time: std::time::Duration::from_secs(30),
+        keepalive_timeout: std::time::Duration::from_secs(5),
+        enable_reflection: true,
+    };
+    
+    // Create dummy memory for server (server creates its own)
+    let dummy_memory = std::sync::Arc::new(42u32) as std::sync::Arc<dyn std::any::Any + Send + Sync>;
+    let server = LeafMindGrpcServer::new(dummy_memory, config).await?;
+    info!("🚀 gRPC Server starting on {}:{}", server.config().host, server.config().port);
+    server.start().await?;
+    Ok(())
+}
+
+async fn start_hybrid_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let config = HybridConfig {
+        grpc_host: "127.0.0.1".to_string(),
+        grpc_port: 50051,
+        websocket_host: "127.0.0.1".to_string(),
+        websocket_port: 8080,
+        max_connections: 10000,
+        ping_interval: std::time::Duration::from_secs(30),
+        pong_timeout: std::time::Duration::from_secs(10),
+        max_message_size: 1024 * 1024,
+        enable_compression: true,
+    };
+    
+    // Create dummy memory for server (server creates its own)
+    let dummy_memory = std::sync::Arc::new(42u32) as std::sync::Arc<dyn std::any::Any + Send + Sync>;
+    let server = HybridServer::new(dummy_memory, config).await?;
+    info!("🚀 Hybrid Server starting:");
+    info!("  📡 gRPC: {}:{}", server.config().grpc_host, server.config().grpc_port);
+    info!("  🌐 WebSocket: {}:{}", server.config().websocket_host, server.config().websocket_port);
+    server.start().await?;
+    Ok(())
+}
+
+async fn run_memory_demo() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Create memory system with custom configuration
     let config = MemoryConfig {
         learning_rate: 0.15,
@@ -43,6 +130,8 @@ fn main() {
     
     // Show final statistics
     show_final_stats(&memory);
+    
+    Ok(())
 }
 
 fn demo_learning_and_association(memory: &MemoryGraph) {
@@ -108,11 +197,12 @@ fn demo_recall_mechanisms(memory: &MemoryGraph) {
         // Test associative recall
         println!("🔗 Associative Recall:");
         let recall_query = RecallQuery {
-            max_results: Some(5),
+            max_results: 5,
             min_relevance: 0.1,
             max_path_length: 2,
             include_semantic_similarity: false,
-            boost_recent_memories: true,
+            use_recency_boost: true,
+            exploration_breadth: 3,
         };
         
         let results = memory.recall(pet_id, recall_query);
