@@ -9,15 +9,14 @@
         "query": "ts-node src/index.ts query",
         "dev": "ts-node src/index.ts",
         "test": "ts-node src/test.ts",
-        "start": "node dist/index.ts",
-        "ingest": "ts-node src/index.ts ingest",
-        "query": "ts-node src/index.ts query"
+        "start": "node dist/index.ts"
     },
     "dependencies": {
         "@qdrant/js-client-rest": "^1.9.0",
         "better-sqlite3": "^9.4.3",
         "fastify": "^4.26.2",
         "mammoth": "^1.7.1",
+        "ollama": "^0.6.3",
         "p-queue": "^8.0.1",
         "pdf-parse": "^1.1.1",
         "uuid": "^9.0.1"
