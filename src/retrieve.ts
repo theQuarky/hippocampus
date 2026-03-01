@@ -4,6 +4,112 @@ import { db, qdrant, COLLECTION } from './db';
 
 const GRAPH_BOOST_FACTOR = 0.15;
 // Example: vector score 0.72 + (connection weight 0.3 * boost factor 0.15) = 0.765
+const MAX_RERANK_CANDIDATES = 20;
+
+type CrossEncoder = (input: any, options?: any) => Promise<any>;
+let crossEncoderPromise: Promise<CrossEncoder | null> | null = null;
+
+async function getCrossEncoder(): Promise<CrossEncoder | null> {
+  if (!crossEncoderPromise) {
+    crossEncoderPromise = (async () => {
+      try {
+        const { pipeline } = await import('@xenova/transformers');
+        return await pipeline('text-classification', 'cross-encoder/ms-marco-MiniLM-L-6-v2');
+      } catch (error) {
+        console.warn('⚠️ Failed to load @xenova/transformers re-ranker. Skipping re-ranking.', error);
+        return null;
+      }
+    })();
+  }
+
+  return crossEncoderPromise;
+}
+
+export async function warmupReranker(): Promise<void> {
+  const startedAt = Date.now();
+  const model = await getCrossEncoder();
+  const elapsedMs = Date.now() - startedAt;
+
+  if (model) {
+    console.log(`🔥 Re-ranker warmup complete in ${elapsedMs}ms`);
+  }
+}
+
+function extractScore(output: any): number | undefined {
+  if (typeof output === 'number') return output;
+
+  if (Array.isArray(output)) {
+    if (output.length === 0) return undefined;
+
+    const first = output[0];
+    if (Array.isArray(first)) return extractScore(first[0]);
+    if (first && typeof first.score === 'number') return first.score;
+
+    return extractScore(first);
+  }
+
+  if (output && typeof output.score === 'number') return output.score;
+  if (output && output.data) return extractScore(output.data);
+
+  return undefined;
+}
+
+async function predictRelevanceScore(crossEncoder: CrossEncoder, query: string, candidateText: string): Promise<number> {
+  const attempts = [
+    () => crossEncoder(query, { text_pair: candidateText, topk: 1 }),
+    () => crossEncoder({ text: query, text_pair: candidateText }, { topk: 1 }),
+    () => crossEncoder([query, candidateText], { topk: 1 }),
+    () => crossEncoder([[query, candidateText]], { topk: 1 })
+  ];
+
+  let lastError: unknown;
+
+  for (const attempt of attempts) {
+    try {
+      const output = await attempt();
+      const score = extractScore(output);
+
+      if (typeof score === 'number' && Number.isFinite(score)) {
+        return score;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new Error(`Unable to extract rerank score from cross-encoder output${lastError ? `: ${String(lastError)}` : ''}`);
+}
+
+async function rerankCandidates(query: string, candidates: Result[]): Promise<Result[]> {
+  if (candidates.length <= 1) return candidates;
+
+  const crossEncoder = await getCrossEncoder();
+  if (!crossEncoder) return candidates;
+
+  const startedAt = Date.now();
+
+  try {
+    const reranked: Result[] = [];
+
+    for (const candidate of candidates) {
+      const rerank_score = await predictRelevanceScore(crossEncoder, query, candidate.text);
+      reranked.push({
+        ...candidate,
+        rerank_score
+      });
+    }
+
+    reranked.sort((a, b) => (b.rerank_score ?? Number.NEGATIVE_INFINITY) - (a.rerank_score ?? Number.NEGATIVE_INFINITY));
+
+    const elapsedMs = Date.now() - startedAt;
+    console.log(`🔢 Re-ranked ${reranked.length} candidates in ${elapsedMs}ms`);
+
+    return reranked;
+  } catch (error) {
+    console.warn('⚠️ Re-ranking failed. Falling back to vector/graph score ordering.', error);
+    return candidates;
+  }
+}
 
 export interface Result {
   text: string;
@@ -11,6 +117,7 @@ export interface Result {
   score: number;
   chunk_id: string;
   graph_boosted: boolean;
+  rerank_score?: number;
 }
 
 export async function retrieve(query: string, topK: number = 20): Promise<Result[]> {
@@ -23,10 +130,7 @@ export async function retrieve(query: string, topK: number = 20): Promise<Result
 
   if (hits.length === 0) return [];
 
-  const best = hits[0].score ?? 0;
-
   const MIN_SCORE = 0.40;
-  const MAX_DROP_FROM_BEST = 0.12;
 
   const vectorCandidates: Result[] = [];
   const vectorChunkIds = new Set<string>();
@@ -86,10 +190,26 @@ export async function retrieve(query: string, topK: number = 20): Promise<Result
   const mergedPool = [...vectorCandidates, ...graphCandidatesById.values()]
     .sort((a, b) => b.score - a.score);
 
-  const filtered = mergedPool
+  if (mergedPool.length <= 1) {
+    for (const result of mergedPool) {
+      db.prepare(`
+        UPDATE chunks
+        SET access_count = access_count + 1,
+            last_accessed = ?
+        WHERE chunk_id = ?
+      `).run(new Date().toISOString(), result.chunk_id);
+    }
+
+    return mergedPool;
+  }
+
+  const rerankPool = mergedPool.slice(0, MAX_RERANK_CANDIDATES);
+  const rankedPool = await rerankCandidates(query, rerankPool);
+
+  const filtered = rankedPool
     .filter(candidate => {
-      const s = candidate.score ?? 0;
-      return s >= MIN_SCORE && (best - s) <= MAX_DROP_FROM_BEST;
+      const s = candidate.rerank_score ?? candidate.score ?? 0;
+      return s >= MIN_SCORE;
     })
     .slice(0, 5);
 
