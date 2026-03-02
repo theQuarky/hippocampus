@@ -75,6 +75,16 @@ function initSQLite() {
       created_at     TEXT NOT NULL,
       last_updated   TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS ingest_events (
+      event_id             TEXT PRIMARY KEY,
+      source               TEXT NOT NULL,
+      chunks_stored        INTEGER NOT NULL,
+      chunks_skipped       INTEGER NOT NULL,
+      connections_seeded   INTEGER NOT NULL,
+      tags                 TEXT NOT NULL,
+      timestamp            TEXT NOT NULL
+    );
   `);
     addColumnIfMissing('chunks', 'is_duplicate INTEGER DEFAULT 0');
     addColumnIfMissing('chunks', 'contradiction_flag INTEGER DEFAULT 0');

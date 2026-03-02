@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 
 const COLLECTION = 'hippocampus';
-const VECTOR_SIZE = 768; // nomic-embed-text dimensions
+const VECTOR_SIZE = 384; // nomic-embed-text dimensions
 
 // ── Qdrant ─────────────────────────────────────────
 export const qdrant = new QdrantClient({ url: 'http://localhost:6333' });
@@ -72,6 +72,16 @@ export function initSQLite() {
       member_chunks  TEXT NOT NULL,
       created_at     TEXT NOT NULL,
       last_updated   TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ingest_events (
+      event_id             TEXT PRIMARY KEY,
+      source               TEXT NOT NULL,
+      chunks_stored        INTEGER NOT NULL,
+      chunks_skipped       INTEGER NOT NULL,
+      connections_seeded   INTEGER NOT NULL,
+      tags                 TEXT NOT NULL,
+      timestamp            TEXT NOT NULL
     );
   `);
 

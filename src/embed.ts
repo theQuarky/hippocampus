@@ -1,8 +1,20 @@
+// src/embed.ts
+import { pipeline } from '@xenova/transformers';
+
+let embeddingPipeline: any = null;
+
+async function getEmbeddingPipeline() {
+  if (!embeddingPipeline) {
+    embeddingPipeline = await pipeline(
+      'feature-extraction',
+      'Xenova/all-MiniLM-L6-v2'
+    );
+  }
+  return embeddingPipeline;
+}
+
 export async function embed(text: string): Promise<number[]> {
-  const res = await fetch('http://localhost:11434/api/embeddings', {
-    method: 'POST',
-    body: JSON.stringify({ model: 'nomic-embed-text', prompt: text })
-  });
-  const data = await res.json();
-  return data.embedding;
+  const pipe = await getEmbeddingPipeline();
+  const result = await pipe(text, { pooling: 'mean', normalize: true });
+  return Array.from(result.data);
 }

@@ -1,13 +1,88 @@
 // src/semanticChunk.ts
-// Strategy: headers first → semantic split for oversized sections → merge tiny sections
+// Strategy: headers first → paragraph/sentence split for oversized sections → merge tiny chunks
 import { splitSentences } from './segment';
-import { embedMany } from './embedMany';
-import { cosine } from './sim';
 
 export interface Chunk { text: string; index: number; }
 
 function approxTokens(s: string): number {
   return Math.ceil(s.length / 4);
+}
+
+function paragraphSplit(
+  text: string,
+  maxTokens: number,
+  minTokens: number,
+): string[] {
+  const paragraphs = text
+    .split(/\n\n+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const chunks: string[] = [];
+  let currentParts: string[] = [];
+  let currentTokens = 0;
+
+  const flush = () => {
+    if (currentParts.length === 0) return;
+    chunks.push(currentParts.join('\n\n').trim());
+    currentParts = [];
+    currentTokens = 0;
+  };
+
+  const addBySentences = (paragraph: string) => {
+    const sentences = splitSentences(paragraph);
+
+    if (sentences.length <= 1) {
+      flush();
+      chunks.push(paragraph.trim());
+      return;
+    }
+
+    for (const sentence of sentences) {
+      const sentenceTokens = approxTokens(sentence);
+
+      if (currentTokens + sentenceTokens > maxTokens && currentParts.length > 0) {
+        flush();
+      }
+
+      currentParts.push(sentence);
+      currentTokens += sentenceTokens;
+    }
+  };
+
+  for (const paragraph of paragraphs) {
+    const paragraphTokens = approxTokens(paragraph);
+
+    if (paragraphTokens > maxTokens) {
+      addBySentences(paragraph);
+      continue;
+    }
+
+    if (currentTokens + paragraphTokens > maxTokens && currentParts.length > 0) {
+      flush();
+    }
+
+    currentParts.push(paragraph);
+    currentTokens += paragraphTokens;
+  }
+
+  flush();
+
+  const merged: string[] = [];
+  for (const chunk of chunks) {
+    if (merged.length === 0) {
+      merged.push(chunk);
+      continue;
+    }
+
+    if (approxTokens(chunk) < minTokens) {
+      merged[merged.length - 1] = `${merged[merged.length - 1]}\n\n${chunk}`.trim();
+    } else {
+      merged.push(chunk);
+    }
+  }
+
+  return merged;
 }
 
 // ── Header detection ────────────────────────────────────────────────────────
@@ -52,50 +127,6 @@ function splitIntoSections(text: string): Array<{ header: string; body: string }
   return sections;
 }
 
-// ── Semantic split for oversized sections ───────────────────────────────────
-async function semanticSplit(
-  text: string,
-  targetMaxTokens: number,
-  targetMinTokens: number,
-  debug: boolean
-): Promise<string[]> {
-  const sentences = splitSentences(text);
-  if (sentences.length <= 1) return [text];
-
-  const vecs = await embedMany(sentences);
-  const sims: number[] = [];
-  for (let i = 0; i < vecs.length - 1; i++) {
-    sims.push(cosine(vecs[i], vecs[i + 1]));
-  }
-
-  // find the lowest similarity points as split candidates
-  const avg = sims.reduce((a, b) => a + b, 0) / sims.length;
-  const splitPoints = new Set<number>();
-
-  for (let i = 0; i < sims.length; i++) {
-    if (sims[i] < avg - 0.05) splitPoints.add(i + 1);
-  }
-
-  // build chunks from split points
-  const starts = [0, ...Array.from(splitPoints).sort((a, b) => a - b), sentences.length];
-  const chunks: string[] = [];
-
-  for (let i = 0; i < starts.length - 1; i++) {
-    chunks.push(sentences.slice(starts[i], starts[i + 1]).join(' ').trim());
-  }
-
-  // merge tiny chunks
-  const merged: string[] = [];
-  for (const c of chunks) {
-    if (merged.length === 0) { merged.push(c); continue; }
-    if (approxTokens(c) < targetMinTokens) {
-      merged[merged.length - 1] = (merged[merged.length - 1] + ' ' + c).trim();
-    } else merged.push(c);
-  }
-
-  return merged;
-}
-
 // ── Main export ─────────────────────────────────────────────────────────────
 export async function semanticChunkText(
   text: string,
@@ -111,6 +142,8 @@ export async function semanticChunkText(
     debug = false,
   } = opts ?? {};
 
+  const start = Date.now();
+
   // Step 1: split on headers
   const sections = splitIntoSections(text);
 
@@ -121,10 +154,14 @@ export async function semanticChunkText(
     );
   }
 
-  // Step 2: if no headers found, fall back to full semantic split
+  // Step 2: if no headers found, fall back to paragraph split on full text
   if (sections.length <= 1) {
-    if (debug) console.log(`   [debug] no headers found — falling back to semantic split`);
-    const chunks = await semanticSplit(text, targetMaxTokens, targetMinTokens, debug);
+    if (debug) console.log(`   [debug] no headers found — using paragraph split`);
+    const chunks = paragraphSplit(text, targetMaxTokens, targetMinTokens);
+    if (debug) {
+      const ms = Date.now() - start;
+      console.log(`[debug] chunked ${chunks.length} chunks in ${ms}ms (heuristic, 0 embed calls)`);
+    }
     return chunks.map((t, idx) => ({ text: t, index: idx }));
   }
 
@@ -143,9 +180,9 @@ export async function semanticChunkText(
       // fits in one chunk — keep as is
       allChunks.push(fullText.trim());
     } else {
-      // too large — semantic split within section
-      if (debug) console.log(`   [debug] section "${section.header}" is ${tokens}t — semantic splitting`);
-      const subChunks = await semanticSplit(fullText, targetMaxTokens, targetMinTokens, debug);
+      // too large — paragraph/sentence split within section
+      if (debug) console.log(`   [debug] section "${section.header}" is ${tokens}t — paragraph splitting`);
+      const subChunks = paragraphSplit(fullText, targetMaxTokens, targetMinTokens);
       allChunks.push(...subChunks);
     }
   }
@@ -160,6 +197,8 @@ export async function semanticChunkText(
   }
 
   if (debug) {
+    const ms = Date.now() - start;
+    console.log(`[debug] chunked ${merged.length} chunks in ${ms}ms (heuristic, 0 embed calls)`);
     console.log(`   [debug] final chunks: ${merged.length}`);
     merged.forEach((c, i) =>
       console.log(`   [debug] chunk[${i}] (~${approxTokens(c)}t): "${c.slice(0, 70)}"`)

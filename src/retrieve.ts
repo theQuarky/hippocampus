@@ -2,26 +2,31 @@
 import { embed } from './embed';
 import { db, qdrant, COLLECTION } from './db';
 
-const GRAPH_BOOST_FACTOR = 0.15;
+const GRAPH_BOOST_FACTOR = 0.05;
 // Example: vector score 0.72 + (connection weight 0.3 * boost factor 0.15) = 0.765
 const MAX_RERANK_CANDIDATES = 20;
 
 type CrossEncoder = (input: any, options?: any) => Promise<any>;
 let crossEncoderPromise: Promise<CrossEncoder | null> | null = null;
 
-async function getCrossEncoder(): Promise<CrossEncoder | null> {
+
+
+
+async function getCrossEncoder() {
+  const { pipeline, env } = await import('@huggingface/transformers') as any;
+  // Configuration to prevent local file errors
+  env.allowLocalModels = false;
   if (!crossEncoderPromise) {
     crossEncoderPromise = (async () => {
       try {
-        const { pipeline } = await import('@xenova/transformers');
-        return await pipeline('text-classification', 'cross-encoder/ms-marco-MiniLM-L-6-v2');
+        // Use the optimized Xenova version of the model
+        return await pipeline('text-classification', 'Xenova/ms-marco-MiniLM-L-6-v2');
       } catch (error) {
-        console.warn('⚠️ Failed to load @xenova/transformers re-ranker. Skipping re-ranking.', error);
+        console.error('❌ Re-ranker load failed:', error);
         return null;
       }
     })();
   }
-
   return crossEncoderPromise;
 }
 

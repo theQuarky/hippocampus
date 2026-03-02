@@ -32,7 +32,7 @@ type ConceptRow = {
   member_chunks: string;
 };
 
-const MODEL = 'mistral:latest';
+const MODEL = 'phi3:mini';
 const VALID_RELATIONSHIPS: Relationship[] = ['supports', 'contradicts', 'example_of', 'caused_by', 'related_to'];
 
 const RELATIONSHIP_WEIGHTS: Record<Relationship, number> = {
@@ -50,6 +50,122 @@ const DECAY_FACTOR = 0.95;
 const MIN_CONNECTION_WEIGHT = 0.05;
 const CONCEPT_CLUSTER_MIN_SIZE = 3;
 const CONCEPT_EDGE_MIN_WEIGHT = 0.6;
+
+type ConsolidationStatements = {
+  getChunkByIdStmt: any;
+  getRelatedConnectionsStmt: any;
+  updateConnectionStmt: any;
+  flagContradictionStmt: any;
+  selectUntypedSourcesStmt: any;
+  selectAllUntypedSourcesStmt: any;
+  selectHighlyAccessedChunksStmt: any;
+  selectOutgoingConnectionsStmt: any;
+  updateConnectionReinforcementStmt: any;
+  selectConnectionsToDecayStmt: any;
+  updateConnectionWeightStmt: any;
+  selectStrongConnectionsStmt: any;
+  selectConceptsStmt: any;
+  insertConceptStmt: any;
+  updateConceptStmt: any;
+};
+
+let statements: ConsolidationStatements | null = null;
+
+function getStatements(): ConsolidationStatements {
+  if (statements) {
+    return statements;
+  }
+
+  statements = {
+    getChunkByIdStmt: db.prepare(`
+      SELECT chunk_id, text, source
+      FROM chunks
+      WHERE chunk_id = ?
+      LIMIT 1
+    `),
+    getRelatedConnectionsStmt: db.prepare(`
+      SELECT edge_id, source_chunk, target_chunk
+      FROM connections
+      WHERE source_chunk = ?
+        AND relationship = 'related_to'
+      ORDER BY weight DESC, confidence DESC, created_at DESC
+    `),
+    updateConnectionStmt: db.prepare(`
+      UPDATE connections
+      SET relationship = ?,
+          weight = ?,
+          last_reinforced = ?
+      WHERE edge_id = ?
+    `),
+    flagContradictionStmt: db.prepare(`
+      UPDATE chunks
+      SET contradiction_flag = 1
+      WHERE chunk_id = ?
+    `),
+    selectUntypedSourcesStmt: db.prepare(`
+      SELECT DISTINCT source_chunk
+      FROM connections
+      WHERE relationship = 'related_to'
+      LIMIT 10
+    `),
+    selectAllUntypedSourcesStmt: db.prepare(`
+      SELECT DISTINCT source_chunk
+      FROM connections
+      WHERE relationship = 'related_to'
+    `),
+    selectHighlyAccessedChunksStmt: db.prepare(`
+      SELECT chunk_id
+      FROM chunks
+      WHERE access_count > ?
+    `),
+    selectOutgoingConnectionsStmt: db.prepare(`
+      SELECT edge_id, weight
+      FROM connections
+      WHERE source_chunk = ?
+    `),
+    updateConnectionReinforcementStmt: db.prepare(`
+      UPDATE connections
+      SET weight = ?,
+          last_reinforced = ?
+      WHERE edge_id = ?
+    `),
+    selectConnectionsToDecayStmt: db.prepare(`
+      SELECT edge_id, weight
+      FROM connections
+      WHERE (last_reinforced IS NULL AND created_at < ?)
+         OR (last_reinforced < ?)
+    `),
+    updateConnectionWeightStmt: db.prepare(`
+      UPDATE connections
+      SET weight = ?
+      WHERE edge_id = ?
+    `),
+    selectStrongConnectionsStmt: db.prepare(`
+      SELECT source_chunk, target_chunk, weight
+      FROM connections
+      WHERE weight >= ?
+      ORDER BY weight DESC
+    `),
+    selectConceptsStmt: db.prepare(`
+      SELECT concept_id, member_chunks
+      FROM concepts
+    `),
+    insertConceptStmt: db.prepare(`
+      INSERT INTO concepts (concept_id, label, summary, member_chunks, created_at, last_updated)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `),
+    updateConceptStmt: db.prepare(`
+      UPDATE concepts
+      SET label = ?,
+          summary = ?,
+          member_chunks = ?,
+          last_updated = ?
+      WHERE concept_id = ?
+    `),
+  };
+
+  return statements;
+}
 
 function isRelationship(value: string): value is Relationship {
   return VALID_RELATIONSHIPS.includes(value as Relationship);
@@ -86,107 +202,13 @@ async function classifyRelationship(textA: string, textB: string): Promise<Relat
   return parseRelationship(response.response || '');
 }
 
-const getChunkByIdStmt = db.prepare(`
-  SELECT chunk_id, text, source
-  FROM chunks
-  WHERE chunk_id = ?
-  LIMIT 1
-`);
-
-const getRelatedConnectionsStmt = db.prepare(`
-  SELECT edge_id, source_chunk, target_chunk
-  FROM connections
-  WHERE source_chunk = ?
-    AND relationship = 'related_to'
-  ORDER BY weight DESC, confidence DESC, created_at DESC
-`);
-
-const updateConnectionStmt = db.prepare(`
-  UPDATE connections
-  SET relationship = ?,
-      weight = ?,
-      last_reinforced = ?
-  WHERE edge_id = ?
-`);
-
-const flagContradictionStmt = db.prepare(`
-  UPDATE chunks
-  SET contradiction_flag = 1
-  WHERE chunk_id = ?
-`);
-
-const selectUntypedSourcesStmt = db.prepare(`
-  SELECT DISTINCT source_chunk
-  FROM connections
-  WHERE relationship = 'related_to'
-  LIMIT 10
-`);
-
-const selectAllUntypedSourcesStmt = db.prepare(`
-  SELECT DISTINCT source_chunk
-  FROM connections
-  WHERE relationship = 'related_to'
-`);
-
-const selectHighlyAccessedChunksStmt = db.prepare(`
-  SELECT chunk_id
-  FROM chunks
-  WHERE access_count > ?
-`);
-
-const selectOutgoingConnectionsStmt = db.prepare(`
-  SELECT edge_id, weight
-  FROM connections
-  WHERE source_chunk = ?
-`);
-
-const updateConnectionReinforcementStmt = db.prepare(`
-  UPDATE connections
-  SET weight = ?,
-      last_reinforced = ?
-  WHERE edge_id = ?
-`);
-
-const selectConnectionsToDecayStmt = db.prepare(`
-  SELECT edge_id, weight
-  FROM connections
-  WHERE (last_reinforced IS NULL AND created_at < ?)
-     OR (last_reinforced < ?)
-`);
-
-const updateConnectionWeightStmt = db.prepare(`
-  UPDATE connections
-  SET weight = ?
-  WHERE edge_id = ?
-`);
-
-const selectStrongConnectionsStmt = db.prepare(`
-  SELECT source_chunk, target_chunk, weight
-  FROM connections
-  WHERE weight >= ?
-  ORDER BY weight DESC
-`);
-
-const selectConceptsStmt = db.prepare(`
-  SELECT concept_id, member_chunks
-  FROM concepts
-`);
-
-const insertConceptStmt = db.prepare(`
-  INSERT INTO concepts (concept_id, label, summary, member_chunks, created_at, last_updated)
-  VALUES (?, ?, ?, ?, ?, ?)
-`);
-
-const updateConceptStmt = db.prepare(`
-  UPDATE concepts
-  SET label = ?,
-      summary = ?,
-      member_chunks = ?,
-      last_updated = ?
-  WHERE concept_id = ?
-`);
-
 export function reinforceConnections(): void {
+  const {
+    selectHighlyAccessedChunksStmt,
+    selectOutgoingConnectionsStmt,
+    updateConnectionReinforcementStmt,
+  } = getStatements();
+
   const now = new Date().toISOString();
   const chunks = selectHighlyAccessedChunksStmt.all(REINFORCE_ACCESS_THRESHOLD) as Array<{ chunk_id: string }>;
 
@@ -207,6 +229,11 @@ export function reinforceConnections(): void {
 }
 
 export function decayConnections(daysOld: number = 7): void {
+  const {
+    selectConnectionsToDecayStmt,
+    updateConnectionWeightStmt,
+  } = getStatements();
+
   const threshold = new Date(Date.now() - (daysOld * 24 * 60 * 60 * 1000)).toISOString();
   const edges = selectConnectionsToDecayStmt.all(threshold, threshold) as WeightedConnectionRow[];
 
@@ -292,6 +319,14 @@ function buildConceptLabel(summary: string, maxLength: number = 60): string {
 }
 
 export async function abstractConcepts(): Promise<void> {
+  const {
+    selectStrongConnectionsStmt,
+    selectConceptsStmt,
+    getChunkByIdStmt,
+    updateConceptStmt,
+    insertConceptStmt,
+  } = getStatements();
+
   const edges = selectStrongConnectionsStmt.all(CONCEPT_EDGE_MIN_WEIGHT) as StrongEdgeRow[];
 
   if (edges.length === 0) {
@@ -427,6 +462,13 @@ export async function abstractConcepts(): Promise<void> {
 }
 
 export async function consolidateChunk(chunk_id: string): Promise<void> {
+  const {
+    getChunkByIdStmt,
+    getRelatedConnectionsStmt,
+    updateConnectionStmt,
+    flagContradictionStmt,
+  } = getStatements();
+
   const sourceChunk = getChunkByIdStmt.get(chunk_id) as ChunkRow | undefined;
   if (!sourceChunk) {
     console.warn(`⚠️  consolidateChunk: source chunk not found (${chunk_id})`);
@@ -476,6 +518,8 @@ export async function consolidateChunk(chunk_id: string): Promise<void> {
 }
 
 export function runConsolidationWorker(intervalMs: number = 30000): void {
+  const { selectUntypedSourcesStmt } = getStatements();
+
   const intervalSeconds = Math.round(intervalMs / 1000);
   console.log(`🔄 Consolidation worker running every ${intervalSeconds}s`);
 
@@ -512,6 +556,8 @@ export function runConsolidationWorker(intervalMs: number = 30000): void {
 }
 
 export async function consolidateAll(): Promise<void> {
+  const { selectAllUntypedSourcesStmt } = getStatements();
+
   const rows = selectAllUntypedSourcesStmt.all() as Array<{ source_chunk: string }>;
 
   if (rows.length === 0) {

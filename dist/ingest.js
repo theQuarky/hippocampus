@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ingest = ingest;
+exports.ingestText = ingestText;
 // src/ingest.ts
 const uuid_1 = require("uuid");
 const embed_1 = require("./embed");
@@ -70,14 +71,24 @@ function seedConnections(sourceChunkId, targetChunkIds, timestamp) {
     }
     return created;
 }
-async function ingest(filePath, tags = []) {
-    console.log(`\n📥 Ingesting: ${filePath}`);
+function resolveSource(sourceLabel) {
+    if (/^https?:\/\//i.test(sourceLabel)) {
+        return sourceLabel;
+    }
+    return sourceLabel.split('/').pop() || sourceLabel;
+}
+async function ingest(filePath, tags = [], sourceOverride) {
     const text = await (0, parser_1.parseFile)(filePath);
+    return ingestText(sourceOverride ?? filePath, text, tags);
+}
+async function ingestText(sourceLabel, text, tags = []) {
+    console.log(`\n📥 Ingesting: ${sourceLabel}`);
     console.log(`   Parsed ${text.length} characters`);
     const chunks = await (0, semanticChunk_1.semanticChunkText)(text);
     console.log(`   Created ${chunks.length} semantic chunks`);
-    const source = filePath.split('/').pop() || filePath;
+    const source = resolveSource(sourceLabel);
     const duplicateThreshold = 0.97;
+    const ingestTimestamp = new Date().toISOString();
     let stored = 0;
     let skipped = 0;
     let seededConnections = 0;
@@ -110,4 +121,15 @@ async function ingest(filePath, tags = []) {
         process.stdout.write(`\r   Stored ${stored}/${chunks.length} | Skipped ${skipped}`);
     }
     console.log(`\n✅ Ingested ${stored} chunks from ${source} (skipped ${skipped} duplicates, seeded ${seededConnections} connections)\n`);
+    db_1.db.prepare(`
+    INSERT INTO ingest_events (event_id, source, chunks_stored, chunks_skipped, connections_seeded, tags, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run((0, uuid_1.v4)(), source, stored, skipped, seededConnections, JSON.stringify(tags), ingestTimestamp);
+    return {
+        success: true,
+        chunks_stored: stored,
+        chunks_skipped: skipped,
+        connections_seeded: seededConnections,
+        source,
+    };
 }
