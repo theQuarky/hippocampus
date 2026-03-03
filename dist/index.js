@@ -123,6 +123,10 @@ async function main() {
         console.log(`
 🧠 Hippocampus
 
+  Chunking strategy (env):
+    CHUNK_STRATEGY=fast  (default heuristic chunker)
+    CHUNK_STRATEGY=llm   (Ollama-based semantic chunker)
+
   Commands:
     ingest <file|url>    Feed a document or webpage into memory
     ingest-dir <folder>  Recursively ingest supported files from a folder

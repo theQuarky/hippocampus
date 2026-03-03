@@ -38,19 +38,20 @@ exports.retrieve = retrieve;
 // src/retrieve.ts
 const embed_1 = require("./embed");
 const db_1 = require("./db");
-const GRAPH_BOOST_FACTOR = 0.15;
+const GRAPH_BOOST_FACTOR = 0.05;
 // Example: vector score 0.72 + (connection weight 0.3 * boost factor 0.15) = 0.765
 const MAX_RERANK_CANDIDATES = 20;
 let crossEncoderPromise = null;
 async function getCrossEncoder() {
+    const { pipeline, env } = await Promise.resolve().then(() => __importStar(require('@xenova/transformers')));
+    env.allowLocalModels = false;
     if (!crossEncoderPromise) {
         crossEncoderPromise = (async () => {
             try {
-                const { pipeline } = await Promise.resolve().then(() => __importStar(require('@xenova/transformers')));
-                return await pipeline('text-classification', 'cross-encoder/ms-marco-MiniLM-L-6-v2');
+                return await pipeline('text-classification', 'Xenova/ms-marco-MiniLM-L-6-v2');
             }
             catch (error) {
-                console.warn('⚠️ Failed to load @xenova/transformers re-ranker. Skipping re-ranking.', error);
+                console.error('❌ Re-ranker load failed:', error);
                 return null;
             }
         })();

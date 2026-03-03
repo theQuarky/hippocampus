@@ -13,13 +13,12 @@ let crossEncoderPromise: Promise<CrossEncoder | null> | null = null;
 
 
 async function getCrossEncoder() {
-  const { pipeline, env } = await import('@huggingface/transformers') as any;
-  // Configuration to prevent local file errors
+  const { pipeline, env } = await import('@xenova/transformers') as any;
   env.allowLocalModels = false;
+
   if (!crossEncoderPromise) {
     crossEncoderPromise = (async () => {
       try {
-        // Use the optimized Xenova version of the model
         return await pipeline('text-classification', 'Xenova/ms-marco-MiniLM-L-6-v2');
       } catch (error) {
         console.error('❌ Re-ranker load failed:', error);
@@ -29,7 +28,6 @@ async function getCrossEncoder() {
   }
   return crossEncoderPromise;
 }
-
 export async function warmupReranker(): Promise<void> {
   const startedAt = Date.now();
   const model = await getCrossEncoder();
@@ -85,35 +83,40 @@ async function predictRelevanceScore(crossEncoder: CrossEncoder, query: string, 
   throw new Error(`Unable to extract rerank score from cross-encoder output${lastError ? `: ${String(lastError)}` : ''}`);
 }
 
+// async function rerankCandidates(query: string, candidates: Result[]): Promise<Result[]> {
+//   if (candidates.length <= 1) return candidates;
+
+//   const crossEncoder = await getCrossEncoder();
+//   if (!crossEncoder) return candidates;
+
+//   const startedAt = Date.now();
+
+//   try {
+//     const reranked: Result[] = [];
+
+//     for (const candidate of candidates) {
+//       const rerank_score = await predictRelevanceScore(crossEncoder, query, candidate.text);
+//       reranked.push({
+//         ...candidate,
+//         rerank_score
+//       });
+//     }
+
+//     reranked.sort((a, b) => (b.rerank_score ?? Number.NEGATIVE_INFINITY) - (a.rerank_score ?? Number.NEGATIVE_INFINITY));
+
+//     const elapsedMs = Date.now() - startedAt;
+//     console.log(`🔢 Re-ranked ${reranked.length} candidates in ${elapsedMs}ms`);
+
+//     return reranked;
+//   } catch (error) {
+//     console.warn('⚠️ Re-ranking failed. Falling back to vector/graph score ordering.', error);
+//     return candidates;
+//   }
+// }
+
+// Replace rerankCandidates with a no-op that just returns sorted by score
 async function rerankCandidates(query: string, candidates: Result[]): Promise<Result[]> {
-  if (candidates.length <= 1) return candidates;
-
-  const crossEncoder = await getCrossEncoder();
-  if (!crossEncoder) return candidates;
-
-  const startedAt = Date.now();
-
-  try {
-    const reranked: Result[] = [];
-
-    for (const candidate of candidates) {
-      const rerank_score = await predictRelevanceScore(crossEncoder, query, candidate.text);
-      reranked.push({
-        ...candidate,
-        rerank_score
-      });
-    }
-
-    reranked.sort((a, b) => (b.rerank_score ?? Number.NEGATIVE_INFINITY) - (a.rerank_score ?? Number.NEGATIVE_INFINITY));
-
-    const elapsedMs = Date.now() - startedAt;
-    console.log(`🔢 Re-ranked ${reranked.length} candidates in ${elapsedMs}ms`);
-
-    return reranked;
-  } catch (error) {
-    console.warn('⚠️ Re-ranking failed. Falling back to vector/graph score ordering.', error);
-    return candidates;
-  }
+  return candidates; // vector + graph scores are good enough
 }
 
 export interface Result {

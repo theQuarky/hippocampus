@@ -13,7 +13,7 @@ const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const path_1 = __importDefault(require("path"));
 const COLLECTION = 'hippocampus';
 exports.COLLECTION = COLLECTION;
-const VECTOR_SIZE = 768; // nomic-embed-text dimensions
+const VECTOR_SIZE = 384; // nomic-embed-text dimensions
 // ── Qdrant ─────────────────────────────────────────
 exports.qdrant = new js_client_rest_1.QdrantClient({ url: 'http://localhost:6333' });
 async function initQdrant() {
@@ -29,6 +29,8 @@ async function initQdrant() {
 // ── SQLite ─────────────────────────────────────────
 const DB_PATH = path_1.default.join(process.cwd(), 'hippocampus.db');
 exports.db = new better_sqlite3_1.default(DB_PATH);
+exports.db.pragma('journal_mode = WAL');
+exports.db.pragma('synchronous = NORMAL');
 function addColumnIfMissing(table, definition) {
     try {
         exports.db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition};`);
@@ -85,6 +87,9 @@ function initSQLite() {
       tags                 TEXT NOT NULL,
       timestamp            TEXT NOT NULL
     );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_unique_triplet
+    ON connections (source_chunk, target_chunk, relationship);
   `);
     addColumnIfMissing('chunks', 'is_duplicate INTEGER DEFAULT 0');
     addColumnIfMissing('chunks', 'contradiction_flag INTEGER DEFAULT 0');

@@ -78,6 +78,16 @@ function parseHtmlString(html) {
     const root = body.length > 0 ? body : $.root();
     return extractTextWithParagraphBreaks($, root);
 }
+function cleanPdfText(text) {
+    return text
+        // Join lines that are broken mid-sentence (no punctuation at line end)
+        .replace(/([a-z,])\n([a-z])/g, '$1 $2')
+        // Normalize multiple newlines to double newline (paragraph break)
+        .replace(/\n{3,}/g, '\n\n')
+        // Remove hyphenation artifacts: "neuro-\nscience" → "neuroscience"
+        .replace(/-\n([a-z])/g, '$1')
+        .trim();
+}
 async function parseUrl(url) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
@@ -95,7 +105,7 @@ async function parseUrl(url) {
         if (contentType.includes('application/pdf')) {
             const pdfBuffer = Buffer.from(await response.arrayBuffer());
             const data = await (0, pdf_parse_1.default)(pdfBuffer);
-            return data.text;
+            return cleanPdfText(data.text);
         }
         if (contentType.includes('text/html')) {
             const html = await response.text();
@@ -141,7 +151,7 @@ async function parseFile(filePath) {
         case '.pdf': {
             const buffer = fs_1.default.readFileSync(filePath);
             const data = await (0, pdf_parse_1.default)(buffer);
-            return data.text;
+            return cleanPdfText(data.text);
         }
         case '.docx': {
             const result = await mammoth_1.default.extractRawText({ path: filePath });

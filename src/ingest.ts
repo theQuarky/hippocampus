@@ -1,8 +1,7 @@
 // src/ingest.ts
 import { v4 as uuidv4 } from 'uuid';
 import { stat } from 'node:fs/promises';
-import PQueue from 'p-queue';
-import { embed } from './embed';
+import { embedBatch } from './embed';
 import { parseFile } from './parser';
 import { semanticChunkText, Chunk } from './semanticChunk';
 import { llmChunkText } from './llmChunk';
@@ -28,6 +27,8 @@ type SimilarChunkHit = {
     chunk_id?: string;
   };
 };
+
+
 
 export type IngestResult = {
   success: boolean;
@@ -58,76 +59,77 @@ type IngestTextOptions = {
   onProgress?: (event: ProgressEvent) => void;
 };
 
-async function topSimilarityScore(vector: number[]): Promise<number> {
-  try {
-    const results = await qdrant.search(COLLECTION, {
-      vector,
-      limit: 10,
-      with_payload: false,
-      with_vector: false,
-    });
+type PerfStageTotals = {
+  embeddingMs: number;
+  qdrantSearchMs: number;
+  qdrantUpsertMs: number;
+  sqliteMs: number;
+  connectionSeedingMs: number;
+};
 
-    if (!results || results.length === 0) return 0;
-    return results[0].score ?? 0;
-  } catch {
-    return 0;
-  }
+type PerfStageCounts = {
+  embeddingChunks: number;
+  qdrantSearchChunks: number;
+  qdrantUpsertChunks: number;
+  sqliteChunks: number;
+  connectionSeedingChunks: number;
+};
+
+type BatchPerfSnapshot = {
+  batchIndex: number;
+  batchSize: number;
+  embedMs: number;
+  searchMs: number;
+  upsertMs: number;
+  sqliteMs: number;
+  seedingMs: number;
+};
+
+function formatPerfSeconds(milliseconds: number): string {
+  return `${(milliseconds / 1000).toFixed(1)}s`;
 }
 
-async function findSimilarExistingChunks(vector: number[], limit: number = 5): Promise<string[]> {
+function rateForStage(chunks: number, milliseconds: number): string {
+  if (milliseconds <= 0 || chunks <= 0) return '0.0';
+  return ((chunks * 1000) / milliseconds).toFixed(1);
+}
+
+async function searchSimilar(vector: number[]): Promise<{ topScore: number; similarIds: string[] }> {
   try {
     const results = await qdrant.search(COLLECTION, {
-      vector,
-      limit,
-      with_payload: true,
-      with_vector: false,
+      vector, limit: 6, with_payload: true, with_vector: false,
     }) as SimilarChunkHit[];
-
-    return results
-      .map(r => r.payload?.chunk_id)
-      .filter((id): id is string => Boolean(id));
+    return {
+      topScore: results[0]?.score ?? 0,
+      similarIds: results.map(r => r.payload?.chunk_id).filter((id): id is string => Boolean(id)),
+    };
   } catch {
-    return [];
+    return { topScore: 0, similarIds: [] };
   }
 }
 
-function seedConnections(sourceChunkId: string, targetChunkIds: string[], timestamp: string): number {
-  if (targetChunkIds.length === 0) return 0;
-
-  const existsStmt = db.prepare(`
-    SELECT edge_id
-    FROM connections
-    WHERE source_chunk = ?
-      AND target_chunk = ?
-      AND relationship = 'related_to'
-    LIMIT 1
-  `);
-
+function seedConnectionsBatch(
+  entries: { sourceId: string; targetIds: string[] }[],
+  timestamp: string,
+): number {
   const insertStmt = db.prepare(`
-    INSERT INTO connections (edge_id, source_chunk, target_chunk, relationship, weight, confidence, created_at, last_reinforced)
+    INSERT OR IGNORE INTO connections (edge_id, source_chunk, target_chunk, relationship, weight, confidence, created_at, last_reinforced)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  let created = 0;
-  for (const targetChunkId of targetChunkIds) {
-    if (targetChunkId === sourceChunkId) continue;
-    const existing = existsStmt.get(sourceChunkId, targetChunkId) as { edge_id: string } | undefined;
-    if (existing) continue;
+  const insertAll = db.transaction((items: { sourceId: string; targetIds: string[] }[]) => {
+    let total = 0;
+    for (const { sourceId, targetIds } of items) {
+      for (const targetId of targetIds) {
+        if (targetId === sourceId) continue;
+        const result = insertStmt.run(uuidv4(), sourceId, targetId, 'related_to', 0.3, 0.5, timestamp, null);
+        total += result.changes;
+      }
+    }
+    return total;
+  });
 
-    insertStmt.run(
-      uuidv4(),
-      sourceChunkId,
-      targetChunkId,
-      'related_to',
-      0.3,
-      0.5,
-      timestamp,
-      null
-    );
-    created++;
-  }
-
-  return created;
+  return insertAll(entries);
 }
 
 function resolveSource(sourceLabel: string): string {
@@ -190,6 +192,70 @@ export async function ingestText(
   tags: string[] = [],
   options: IngestTextOptions = {}
 ): Promise<IngestResult> {
+  const wallStartedMs = Date.now();
+  const debugPerf = process.env.DEBUG_PERF === 'true';
+  const perfTotals: PerfStageTotals = {
+    embeddingMs: 0,
+    qdrantSearchMs: 0,
+    qdrantUpsertMs: 0,
+    sqliteMs: 0,
+    connectionSeedingMs: 0,
+  };
+  const perfCounts: PerfStageCounts = {
+    embeddingChunks: 0,
+    qdrantSearchChunks: 0,
+    qdrantUpsertChunks: 0,
+    sqliteChunks: 0,
+    connectionSeedingChunks: 0,
+  };
+  let cpuSnapshotTimer: NodeJS.Timeout | null = null;
+
+  const logPerf = (line: string): void => {
+    if (!debugPerf) return;
+    console.log(line);
+  };
+
+  const logBatchPerf = (snapshot: BatchPerfSnapshot): void => {
+    if (!debugPerf) return;
+
+    const embedRate = rateForStage(snapshot.batchSize, snapshot.embedMs);
+    const searchRate = rateForStage(snapshot.batchSize, snapshot.searchMs);
+    const upsertRate = rateForStage(snapshot.batchSize, snapshot.upsertMs);
+    const sqliteRate = rateForStage(snapshot.batchSize, snapshot.sqliteMs);
+
+    console.log(
+      `[PERF][Batch ${snapshot.batchIndex}] size=${snapshot.batchSize} ` +
+      `embed=${(snapshot.embedMs / 1000).toFixed(3)}s (${embedRate} chunks/sec) ` +
+      `search=${(snapshot.searchMs / 1000).toFixed(3)}s (${searchRate} chunks/sec) ` +
+      `upsert=${(snapshot.upsertMs / 1000).toFixed(3)}s (${upsertRate} chunks/sec) ` +
+      `sqlite=${(snapshot.sqliteMs / 1000).toFixed(3)}s (${sqliteRate} chunks/sec) ` +
+      `seed=${(snapshot.seedingMs / 1000).toFixed(3)}s`
+    );
+  };
+
+  if (debugPerf) {
+    const cpuIntervalMsRaw = Number.parseInt(process.env.PERF_CPU_SNAPSHOT_INTERVAL_MS ?? '15000', 10);
+    const cpuIntervalMs = Number.isFinite(cpuIntervalMsRaw) && cpuIntervalMsRaw > 0
+      ? cpuIntervalMsRaw
+      : 15000;
+    const cpuStartedAtMs = Date.now();
+    const cpuTotalStart = process.cpuUsage();
+    let cpuLast = process.cpuUsage();
+
+    cpuSnapshotTimer = setInterval(() => {
+      const delta = process.cpuUsage(cpuLast);
+      cpuLast = process.cpuUsage();
+      const elapsedMs = Date.now() - cpuStartedAtMs;
+      const total = process.cpuUsage(cpuTotalStart);
+
+      console.log(
+        `[PERF][CPU] elapsed=${(elapsedMs / 1000).toFixed(1)}s ` +
+        `delta_user=${(delta.user / 1000).toFixed(1)}ms delta_sys=${(delta.system / 1000).toFixed(1)}ms ` +
+        `total_user=${(total.user / 1000).toFixed(1)}ms total_sys=${(total.system / 1000).toFixed(1)}ms`
+      );
+    }, cpuIntervalMs);
+  }
+
   const source = resolveSource(sourceLabel);
   const concurrency = options.concurrency ?? resolveConcurrency();
   const onProgress = options.onProgress;
@@ -234,6 +300,9 @@ export async function ingestText(
   }
 
   const duplicateThreshold = 0.97;
+  const skipDuplicateCheck = process.env.SKIP_DUPLICATE_CHECK === 'true';
+  const deferGraphBuild = process.env.DEFER_GRAPH_BUILD === 'true';
+  const BATCH_SIZE = 4;
   const ingestTimestamp = new Date().toISOString();
   const ingestStartMs = Date.now();
   let stored = 0;
@@ -247,13 +316,15 @@ export async function ingestText(
     totalChunks: chunks.length,
   });
 
-  const emitChunkProgress = (): void => {
+  const emitChunkProgress = (recordCompletion: boolean = true): void => {
     const processed = stored + skipped;
     const now = Date.now();
-    chunkCompletionTimesMs.push(now);
+    if (recordCompletion) {
+      chunkCompletionTimesMs.push(now);
 
-    if (chunkCompletionTimesMs.length > 10) {
-      chunkCompletionTimesMs.shift();
+      if (chunkCompletionTimesMs.length > 10) {
+        chunkCompletionTimesMs.shift();
+      }
     }
 
     let chunksPerSec = 0;
@@ -287,6 +358,11 @@ export async function ingestText(
   };
 
   if (chunks.length === 0) {
+    if (cpuSnapshotTimer) {
+      clearInterval(cpuSnapshotTimer);
+      cpuSnapshotTimer = null;
+    }
+
     console.log(`\n✅ Done in 0s — stored 0 chunks, skipped 0 duplicates, seeded 0 connections\n`);
 
     db.prepare(`
@@ -320,64 +396,246 @@ export async function ingestText(
   }
 
   const progress = new ProgressBar({ total: chunks.length, fallbackEvery: 50, minColumns: 60 });
-  const queue = new PQueue({ concurrency });
-  const tasks: Promise<void>[] = [];
+  const insertChunkStmt = db.prepare(`
+    INSERT INTO chunks (chunk_id, text, source, page, timestamp, tags)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const batchInsertChunks = db.transaction((items: { chunkId: string; text: string; source: string; page: number; timestamp: string; tagsJson: string }[]) => {
+    for (const item of items) {
+      insertChunkStmt.run(item.chunkId, item.text, item.source, item.page, item.timestamp, item.tagsJson);
+    }
+  });
 
-  for (const chunk of chunks) {
-    const task = queue.add(async () => {
-      const chunk_id = uuidv4();
-      const vector = await embed(chunk.text);
+  type DeferredGraphSeed = {
+    chunkId: string;
+    vector: number[];
+    timestamp: string;
+  };
 
-      const score = await topSimilarityScore(vector);
-      if (score >= duplicateThreshold) {
-        skipped++;
-        progress.tick({ duplicates: 1 });
-        emitChunkProgress();
-        return;
+  try {
+    const deferredSeeds: DeferredGraphSeed[] = [];
+    let completedBatchCount = 0;
+
+    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+      const batch = chunks.slice(i, i + BATCH_SIZE);
+      completedBatchCount++;
+      const batchIndex = completedBatchCount;
+
+      // Fix 2: Batch embedding — one inference call per batch
+      const embedStart = Date.now();
+      const vectors = await embedBatch(batch.map(c => c.text));
+      const embedMs = Date.now() - embedStart;
+      perfTotals.embeddingMs += embedMs;
+      perfCounts.embeddingChunks += batch.length;
+
+      // Fix 1: Single searchSimilar call per chunk (parallel within batch)
+      const skipSearch = skipDuplicateCheck && deferGraphBuild;
+      const searchStart = Date.now();
+      const searchResults = skipSearch
+        ? batch.map(() => ({ topScore: 0, similarIds: [] as string[] }))
+        : await Promise.all(vectors.map(v => searchSimilar(v)));
+      const searchMs = skipSearch ? 0 : (Date.now() - searchStart);
+      perfTotals.qdrantSearchMs += searchMs;
+      perfCounts.qdrantSearchChunks += skipSearch ? 0 : batch.length;
+
+      // Filter duplicates
+      type StoreItem = { chunk: Chunk; chunkId: string; vector: number[]; timestamp: string; similarIds: string[] };
+      const toStore: StoreItem[] = [];
+      for (let j = 0; j < batch.length; j++) {
+        const { topScore, similarIds } = searchResults[j];
+        if (!skipDuplicateCheck && topScore >= duplicateThreshold) {
+          skipped++;
+          progress.tick({ duplicates: 1 });
+          emitChunkProgress();
+          continue;
+        }
+        toStore.push({
+          chunk: batch[j],
+          chunkId: uuidv4(),
+          vector: vectors[j],
+          timestamp: new Date().toISOString(),
+          similarIds: deferGraphBuild ? [] : similarIds,
+        });
       }
 
-      const similarExistingChunkIds = await findSimilarExistingChunks(vector, 5);
-      const timestamp = new Date().toISOString();
+      if (toStore.length === 0) {
+        logBatchPerf({ batchIndex, batchSize: batch.length, embedMs, searchMs, upsertMs: 0, sqliteMs: 0, seedingMs: 0 });
+        continue;
+      }
 
-      await qdrant.upsert(COLLECTION, {
-        points: [{
-          id: chunk_id,
-          vector,
-          payload: { text: chunk.text, source, chunk_id }
-        }]
-      });
-
-      db.prepare(`
-        INSERT INTO chunks (chunk_id, text, source, page, timestamp, tags)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(chunk_id, chunk.text, source, chunk.index, timestamp, JSON.stringify(tags));
-
-      const createdConnections = seedConnections(chunk_id, similarExistingChunkIds, timestamp);
-      stored++;
-      seededConnections += createdConnections;
-
-      progress.tick({ stored: 1, connections: createdConnections });
-      emitChunkProgress();
-    })
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        skipped++;
-        progress.tick({ duplicates: 1 });
-        emitChunkProgress();
+      // Batch Qdrant upsert
+      let upsertMs = 0;
+      try {
+        const upsertStart = Date.now();
+        await qdrant.upsert(COLLECTION, {
+          points: toStore.map(c => ({
+            id: c.chunkId,
+            vector: c.vector,
+            payload: { text: c.chunk.text, source, chunk_id: c.chunkId },
+          })),
+        });
+        upsertMs = Date.now() - upsertStart;
+      } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
-        console.warn(`\n⚠️  Chunk processing failed for [${source}]: ${message}`);
-      });
+        console.warn(`\n⚠️  Qdrant upsert failed for batch [${source}]: ${message}`);
+        skipped += toStore.length;
+        for (let k = 0; k < toStore.length; k++) {
+          progress.tick({ duplicates: 1 });
+          emitChunkProgress();
+        }
+        logBatchPerf({ batchIndex, batchSize: batch.length, embedMs, searchMs, upsertMs: 0, sqliteMs: 0, seedingMs: 0 });
+        continue;
+      }
+      perfTotals.qdrantUpsertMs += upsertMs;
+      perfCounts.qdrantUpsertChunks += toStore.length;
 
-    tasks.push(task);
+      // Fix 3: Batch SQLite chunk inserts with transaction
+      const sqliteStart = Date.now();
+      batchInsertChunks(toStore.map(c => ({
+        chunkId: c.chunkId,
+        text: c.chunk.text,
+        source,
+        page: c.chunk.index,
+        timestamp: c.timestamp,
+        tagsJson: JSON.stringify(tags),
+      })));
+      const sqliteMs = Date.now() - sqliteStart;
+      perfTotals.sqliteMs += sqliteMs;
+      perfCounts.sqliteChunks += toStore.length;
+
+      // Fix 4: Batch seedConnections with INSERT OR IGNORE
+      let seedingMs = 0;
+      if (!deferGraphBuild) {
+        const seedStart = Date.now();
+        const entries = toStore.map(c => ({ sourceId: c.chunkId, targetIds: c.similarIds }));
+        const conns = seedConnectionsBatch(entries, ingestTimestamp);
+        seededConnections += conns;
+        seedingMs = Date.now() - seedStart;
+        perfTotals.connectionSeedingMs += seedingMs;
+        perfCounts.connectionSeedingChunks += toStore.length;
+      } else {
+        deferredSeeds.push(...toStore.map(c => ({ chunkId: c.chunkId, vector: c.vector, timestamp: c.timestamp })));
+      }
+
+      // Update progress per stored chunk
+      for (const _item of toStore) {
+        stored++;
+        progress.tick({ stored: 1, connections: 0 });
+        emitChunkProgress();
+      }
+
+      logBatchPerf({ batchIndex, batchSize: batch.length, embedMs, searchMs, upsertMs, sqliteMs, seedingMs });
+    }
+
+    // Deferred graph build phase
+    if (deferGraphBuild && deferredSeeds.length > 0) {
+      for (let i = 0; i < deferredSeeds.length; i += BATCH_SIZE) {
+        completedBatchCount++;
+        const seedBatch = deferredSeeds.slice(i, i + BATCH_SIZE);
+
+        const deferredSearchStart = Date.now();
+        const searchResults = await Promise.all(seedBatch.map(s => searchSimilar(s.vector)));
+        const deferredSearchMs = Date.now() - deferredSearchStart;
+        perfTotals.qdrantSearchMs += deferredSearchMs;
+        perfCounts.qdrantSearchChunks += seedBatch.length;
+
+        const seedStart = Date.now();
+        const entries = seedBatch.map((s, j) => ({
+          sourceId: s.chunkId,
+          targetIds: searchResults[j].similarIds,
+        }));
+        const conns = seedConnectionsBatch(entries, ingestTimestamp);
+        seededConnections += conns;
+        const seedingMs = Date.now() - seedStart;
+        perfTotals.connectionSeedingMs += seedingMs;
+        perfCounts.connectionSeedingChunks += seedBatch.length;
+
+        emitChunkProgress(false);
+
+        logBatchPerf({
+          batchIndex: completedBatchCount,
+          batchSize: seedBatch.length,
+          embedMs: 0,
+          searchMs: deferredSearchMs,
+          upsertMs: 0,
+          sqliteMs: 0,
+          seedingMs,
+        });
+      }
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    onProgress?.({ type: 'error', message });
+
+    if (cpuSnapshotTimer) {
+      clearInterval(cpuSnapshotTimer);
+      cpuSnapshotTimer = null;
+    }
+
+    throw error;
   }
-
-  await Promise.allSettled(tasks);
 
   const summary = progress.finish({
     stored,
     duplicates: skipped,
     connections: seededConnections,
   });
+
+  if (cpuSnapshotTimer) {
+    clearInterval(cpuSnapshotTimer);
+    cpuSnapshotTimer = null;
+  }
+
+  if (debugPerf) {
+    const wallMs = Date.now() - wallStartedMs;
+
+    logPerf(`[PERF] Embed total: ${formatPerfSeconds(perfTotals.embeddingMs)}`);
+    logPerf(`[PERF] Qdrant search total: ${formatPerfSeconds(perfTotals.qdrantSearchMs)}`);
+    logPerf(`[PERF] Qdrant upsert total: ${formatPerfSeconds(perfTotals.qdrantUpsertMs)}`);
+    logPerf(`[PERF] SQLite total: ${formatPerfSeconds(perfTotals.sqliteMs)}`);
+    logPerf(`[PERF] Connection seeding total: ${formatPerfSeconds(perfTotals.connectionSeedingMs)}`);
+    logPerf(`[PERF] Wall time: ${formatPerfSeconds(wallMs)}`);
+
+    console.log('[PERF] Summary table:');
+    console.table([
+      {
+        stage: 'Embedding',
+        total_seconds: Number((perfTotals.embeddingMs / 1000).toFixed(3)),
+        chunks: perfCounts.embeddingChunks,
+        avg_chunks_per_sec: Number(rateForStage(perfCounts.embeddingChunks, perfTotals.embeddingMs)),
+      },
+      {
+        stage: 'Qdrant Search',
+        total_seconds: Number((perfTotals.qdrantSearchMs / 1000).toFixed(3)),
+        chunks: perfCounts.qdrantSearchChunks,
+        avg_chunks_per_sec: Number(rateForStage(perfCounts.qdrantSearchChunks, perfTotals.qdrantSearchMs)),
+      },
+      {
+        stage: 'Qdrant Upsert',
+        total_seconds: Number((perfTotals.qdrantUpsertMs / 1000).toFixed(3)),
+        chunks: perfCounts.qdrantUpsertChunks,
+        avg_chunks_per_sec: Number(rateForStage(perfCounts.qdrantUpsertChunks, perfTotals.qdrantUpsertMs)),
+      },
+      {
+        stage: 'SQLite Writes',
+        total_seconds: Number((perfTotals.sqliteMs / 1000).toFixed(3)),
+        chunks: perfCounts.sqliteChunks,
+        avg_chunks_per_sec: Number(rateForStage(perfCounts.sqliteChunks, perfTotals.sqliteMs)),
+      },
+      {
+        stage: 'Connection Seeding',
+        total_seconds: Number((perfTotals.connectionSeedingMs / 1000).toFixed(3)),
+        chunks: perfCounts.connectionSeedingChunks,
+        avg_chunks_per_sec: Number(rateForStage(perfCounts.connectionSeedingChunks, perfTotals.connectionSeedingMs)),
+      },
+      {
+        stage: 'Wall Time',
+        total_seconds: Number((wallMs / 1000).toFixed(3)),
+        chunks: stored + skipped,
+        avg_chunks_per_sec: Number(rateForStage(stored + skipped, wallMs)),
+      },
+    ]);
+  }
 
   console.log(`✅ Done in ${summary.duration} — stored ${stored} chunks, skipped ${skipped} duplicates, seeded ${seededConnections} connections\n`);
 

@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 
 const COLLECTION = 'hippocampus';
-const VECTOR_SIZE = 384; // nomic-embed-text dimensions
+const VECTOR_SIZE = 768;
 
 // ── Qdrant ─────────────────────────────────────────
 export const qdrant = new QdrantClient({ url: 'http://localhost:6333' });
@@ -26,6 +26,8 @@ export { COLLECTION };
 // ── SQLite ─────────────────────────────────────────
 const DB_PATH = path.join(process.cwd(), 'hippocampus.db');
 export const db = new Database(DB_PATH);
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
 
 function addColumnIfMissing(table: string, definition: string) {
   try {
@@ -83,6 +85,9 @@ export function initSQLite() {
       tags                 TEXT NOT NULL,
       timestamp            TEXT NOT NULL
     );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_unique_triplet
+    ON connections (source_chunk, target_chunk, relationship);
   `);
 
   addColumnIfMissing('chunks', 'is_duplicate INTEGER DEFAULT 0');
