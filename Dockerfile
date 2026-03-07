@@ -19,28 +19,35 @@ COPY src/ ./src/
 RUN npm run build
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
-FROM node:22-slim AS runtime
+# CUDA 12.2 base — matches onnxruntime-node's bundled CUDA provider exactly
+# This solves the libcufft/libcublasLt version mismatch on bare metal Arch
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04 AS runtime
 
 WORKDIR /app
 
+# Install Node.js 22 + build tools for native modules
 RUN apt-get update && apt-get install -y \
+    curl \
     python3 \
     make \
     g++ \
-    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 RUN npm ci --omit=dev
+RUN npm install @huggingface/transformers
 
-# Rebuild native modules against the runtime node version
+# Rebuild native modules (better-sqlite3) against this Node version
 RUN npm rebuild better-sqlite3
 
 COPY --from=builder /app/dist ./dist
 COPY src/proto ./dist/proto
 
-# Data volume — SQLite db lives here
+# Volumes
 VOLUME ["/app/data"]
+VOLUME ["/app/models"]
 
 # Ports
 EXPOSE 50051
@@ -52,12 +59,9 @@ ENV GRPC_PORT=50051
 ENV HTTP_PORT=3001
 ENV OLLAMA_CONCURRENCY=8
 ENV CHUNK_STRATEGY=fast
-
-# Model cache — transformers downloads go here, mount for persistence
 ENV TRANSFORMERS_CACHE=/app/models
-VOLUME ["/app/models"]
 
-# Default: run server. Override CMD for CLI:
-#   docker run hippocampus dist/index.js ingest /uploads/file.pdf
+# Default: run server
+# Override for CLI: docker run hippocampus dist/index.js ingest /uploads/file.pdf
 ENTRYPOINT ["node"]
 CMD ["dist/server.js"]

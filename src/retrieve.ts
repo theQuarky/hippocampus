@@ -2,6 +2,7 @@
 import { embed } from './embed';
 import { db, qdrant, COLLECTION, CONCEPT_COLLECTION } from './db';
 import { INCLUDE_CONCEPTS, DEBUG_PERF, CONCEPT_BOOST, CONCEPT_TOP_K, CONCEPT_MIN_SCORE } from './config';
+import type { RetrievalLayer } from './types/evidence';
 
 const GRAPH_BOOST_FACTOR = 0.05;
 const MAX_RERANK_CANDIDATES = 20;
@@ -126,6 +127,7 @@ export interface Result {
   chunk_id: string;
   graph_boosted: boolean;
   rerank_score?: number;
+  retrieval_layer: RetrievalLayer;
 }
 
 export async function retrieve(query: string, topK: number = 20): Promise<Result[]> {
@@ -154,7 +156,8 @@ export async function retrieve(query: string, topK: number = 20): Promise<Result
       source: payload.source,
       score: hit.score ?? 0,
       chunk_id,
-      graph_boosted: false
+      graph_boosted: false,
+      retrieval_layer: 'vector',
     });
   }
 
@@ -189,7 +192,8 @@ export async function retrieve(query: string, topK: number = 20): Promise<Result
           source: chunkRow.source,
           score: boostedScore,
           chunk_id: neighbor.target_chunk,
-          graph_boosted: true
+          graph_boosted: true,
+          retrieval_layer: 'graph',
         });
       }
     }
@@ -251,6 +255,7 @@ export async function retrieve(query: string, topK: number = 20): Promise<Result
             score: fusedScore,
             chunk_id: memberId,
             graph_boosted: true,
+            retrieval_layer: 'concept',
           });
           expandedCount++;
         }

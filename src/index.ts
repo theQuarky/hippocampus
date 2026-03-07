@@ -9,6 +9,7 @@ import { runBenchmark } from './benchmark';
 import { buildContext } from './contextBuilder';
 import { generateGroundedAnswer } from './answer';
 import { ENABLE_GROUNDED_ANSWERS, CONTEXT_TOP_K, INCLUDE_CONCEPTS, DEBUG_PERF } from './config';
+import type { EvidenceBundle, EvidenceChunk } from './types/evidence';
 import fs from 'fs';
 import path from 'path';
 import chokidar from 'chokidar';
@@ -232,43 +233,111 @@ async function main() {
         break;
       }
 
-      // Step 1: Retrieve chunks
-      const t0 = DEBUG_PERF ? Date.now() : 0;
-      const chunks = await retrieve(argument, CONTEXT_TOP_K);
-      if (DEBUG_PERF) console.log(`[PERF] retrieval: ${Date.now() - t0}ms`);
+      try {
+        // Step 1: Retrieve chunks
+        const t0 = Date.now();
+        const chunks = await retrieve(argument, CONTEXT_TOP_K);
+        const retrievalMs = Date.now() - t0;
+        if (DEBUG_PERF) console.log(`[PERF] retrieval: ${retrievalMs}ms`);
 
-      // Step 2: Retrieve concepts (if enabled)
-      const concepts = INCLUDE_CONCEPTS ? await retrieveConcepts(argument) : undefined;
+        // Step 2: Retrieve concepts (if enabled)
+        const concepts = INCLUDE_CONCEPTS ? await retrieveConcepts(argument) : undefined;
 
-      // Step 3: Build context
-      const t1 = DEBUG_PERF ? Date.now() : 0;
-      const contextPackage = buildContext(
-        argument,
-        chunks.map(c => ({ chunk_id: c.chunk_id, text: c.text, source: c.source, score: c.score })),
-        concepts,
-      );
-      if (DEBUG_PERF) console.log(`[PERF] context_build: ${Date.now() - t1}ms`);
+        // Step 3: Build evidence bundle
+        const tEvidence = Date.now();
+        const evidenceChunks: EvidenceChunk[] = chunks.map(c => ({
+          chunk_id: c.chunk_id,
+          text: typeof c.text === 'string' ? c.text : '',
+          source: typeof c.source === 'string' ? c.source : '',
+          score: typeof c.score === 'number' ? c.score : 0,
+          retrieval_layer: c.retrieval_layer ?? 'vector',
+        }));
 
-      // Step 4: Generate answer (perf logged inside answer.ts)
-      const result = await generateGroundedAnswer(argument, contextPackage);
+        const evidenceBundle: EvidenceBundle = {
+          chunks: evidenceChunks,
+          concepts: (concepts ?? []).map(c => ({
+            concept_id: typeof c.concept_id === 'string' ? c.concept_id : '',
+            label: typeof c.label === 'string' ? c.label : '',
+            confidence: typeof c.confidence === 'number' ? c.confidence : 0,
+          })),
+        };
+        const evidenceScoringMs = Date.now() - tEvidence;
+        if (DEBUG_PERF) console.log(`[PERF] evidence_scoring: ${evidenceScoringMs}ms`);
 
-      // Step 5: Print output
-      console.log(`\nAnswer:\n${result.answer}\n`);
-      if (result.sources.length > 0) {
-        console.log('Sources:');
-        result.sources.forEach(s => console.log(`- ${s}`));
-        console.log();
+        // Step 4: Build context
+        const t1 = Date.now();
+        const contextPackage = buildContext(
+          argument,
+          chunks.map(c => ({
+            chunk_id: c.chunk_id,
+            text: typeof c.text === 'string' ? c.text : '',
+            source: typeof c.source === 'string' ? c.source : '',
+            score: typeof c.score === 'number' ? c.score : 0,
+          })),
+          concepts,
+        );
+        const contextBuildMs = Date.now() - t1;
+        if (DEBUG_PERF) console.log(`[PERF] context_build: ${contextBuildMs}ms`);
+
+        // Step 5: Generate answer (perf logged inside answer.ts)
+        const tAnswer = Date.now();
+        const result = await generateGroundedAnswer(argument, contextPackage, evidenceBundle);
+        const answerMs = Date.now() - tAnswer;
+        if (DEBUG_PERF) console.log(`[PERF] answer_generation: ${answerMs}ms`);
+
+        // Step 6: Print answer
+        console.log(`\nAnswer:\n${result.answer}\n`);
+
+        // Step 7: Print concepts used
+        if (result.concepts_used.length > 0) {
+          console.log('Concepts Used:');
+          result.concepts_used.forEach(c => console.log(`  * ${c}`));
+          console.log();
+        }
+
+        // Step 8: Print evidence chunks (top 5)
+        const topEvidence = result.evidence_used.slice(0, 5);
+        if (topEvidence.length > 0) {
+          console.log('Evidence Chunks:');
+          topEvidence.forEach((ev, i) => {
+            const preview = (ev.text || '').slice(0, 200);
+            console.log(`  [${i + 1}] ${ev.source} (score ${ev.score.toFixed(2)}) [${ev.retrieval_layer}]`);
+            console.log(`      ${preview}`);
+            console.log();
+          });
+        }
+
+        // Step 9: Contradiction detection (Phase 5)
+        if (topEvidence.length >= 2) {
+          try {
+            const usedIds = topEvidence.map(e => e.chunk_id);
+            const placeholders = usedIds.map(() => '?').join(', ');
+            const contradictions = db.prepare(`
+              SELECT source_chunk, target_chunk
+              FROM connections
+              WHERE relationship = 'contradicts'
+                AND source_chunk IN (${placeholders})
+                AND target_chunk IN (${placeholders})
+            `).all(...usedIds, ...usedIds) as Array<{ source_chunk: string; target_chunk: string }>;
+
+            if (contradictions.length > 0) {
+              console.log('⚠ Contradictory evidence detected between chunks:');
+              for (const c of contradictions) {
+                console.log(`  ${c.source_chunk} ↔ ${c.target_chunk}`);
+              }
+              console.log();
+            }
+          } catch {
+            // Contradiction check is best-effort; never crash
+          }
+        }
+      } catch (error) {
+        // Phase 7: Safety — never crash query-answer
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error(`❌ query-answer failed: ${msg}`);
+        console.log('\nAnswer:\nAnswer generation failed — please check that Ollama and Qdrant are running.\n');
       }
-      if (result.usedConcepts.length > 0) {
-        console.log('Concepts Used:');
-        result.usedConcepts.forEach(c => console.log(`- ${c}`));
-        console.log();
-      }
-      if (result.usedChunks.length > 0) {
-        console.log('Evidence Chunks:');
-        result.usedChunks.forEach(id => console.log(`- ${id}`));
-        console.log();
-      }
+
       break;
     }
 

@@ -2,6 +2,7 @@
 import ollama from 'ollama';
 import { ANSWER_MODEL, DEBUG_PERF } from './config';
 import type { ContextPackage } from './contextBuilder';
+import type { EvidenceBundle, EvidenceChunk } from './types/evidence';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -10,6 +11,8 @@ export interface GroundedAnswer {
   sources: string[];
   usedChunks: string[];
   usedConcepts: string[];
+  evidence_used: EvidenceChunk[];
+  concepts_used: string[];
 }
 
 // ── Prompt construction ─────────────────────────────────────────────────────
@@ -36,6 +39,7 @@ Instructions:
 export async function generateGroundedAnswer(
   query: string,
   contextPackage: ContextPackage,
+  evidence?: EvidenceBundle,
 ): Promise<GroundedAnswer> {
   // Handle empty retrieval
   if (contextPackage.chunkIds.length === 0 && contextPackage.conceptLabels.length === 0) {
@@ -44,6 +48,8 @@ export async function generateGroundedAnswer(
       sources: [],
       usedChunks: [],
       usedConcepts: [],
+      evidence_used: [],
+      concepts_used: [],
     };
   }
 
@@ -70,10 +76,23 @@ export async function generateGroundedAnswer(
     console.log(`[PERF] answer_generation: ${Date.now() - t0}ms`);
   }
 
+  // Build evidence_used from the bundle, limited to chunks that were actually
+  // included in the context (by chunk_id).
+  const usedChunkIdSet = new Set(contextPackage.chunkIds);
+  const evidenceUsed: EvidenceChunk[] = evidence
+    ? evidence.chunks.filter(c => usedChunkIdSet.has(c.chunk_id))
+    : [];
+
+  const conceptsUsed: string[] = evidence
+    ? evidence.concepts.map(c => c.label)
+    : contextPackage.conceptLabels;
+
   return {
     answer: answerText,
     sources: contextPackage.sources,
     usedChunks: contextPackage.chunkIds,
     usedConcepts: contextPackage.conceptLabels,
+    evidence_used: evidenceUsed,
+    concepts_used: conceptsUsed,
   };
 }

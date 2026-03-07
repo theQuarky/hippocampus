@@ -64,7 +64,16 @@ export function Graph() {
         .map(([relationship]) => relationship),
     );
 
-    const links = graph.links.filter((link) => activeTypes.has(link.relationship));
+    const linksByType = graph.links.filter((link) => activeTypes.has(link.relationship));
+
+    // Build set of all node IDs that actually exist in the response
+    const existingNodeIds = new Set(graph.nodes.map((node) => node.id));
+
+    // Filter out links that reference missing nodes (e.g. deleted chunks)
+    const links = linksByType.filter(
+      (link) => existingNodeIds.has(link.source) && existingNodeIds.has(link.target),
+    );
+
     const linkedNodeIds = new Set<string>();
     for (const link of links) {
       linkedNodeIds.add(link.source);
@@ -84,12 +93,18 @@ export function Graph() {
 
     const svg = d3.select(svgElement);
     svg.selectAll('*').remove();
+    svg.on('.zoom', null);
+    viewportRef.current = null;
+    zoomBehaviorRef.current = null;
     svg.attr('viewBox', `0 0 ${width} ${height}`);
 
     if (filteredGraph.nodes.length === 0 || filteredGraph.links.length === 0) {
       return;
     }
 
+    let simulation: d3.Simulation<SimulationNode, SimulationLink> | null = null;
+
+    try {
     const viewport = svg.append('g').attr('class', 'graph-viewport');
     viewportRef.current = viewport.node();
 
@@ -107,7 +122,7 @@ export function Graph() {
       radiusScale.domain([0, maxAccess + 1]);
     }
 
-    const simulation = d3
+    const sim = d3
       .forceSimulation<SimulationNode>(nodes)
       .force(
         'link',
@@ -166,7 +181,7 @@ export function Graph() {
     const drag = d3
       .drag<SVGCircleElement, SimulationNode>()
       .on('start', (event, node) => {
-        if (!event.active) simulation.alphaTarget(0.3).restart();
+        if (!event.active) sim.alphaTarget(0.3).restart();
         node.fx = node.x;
         node.fy = node.y;
       })
@@ -175,14 +190,14 @@ export function Graph() {
         node.fy = event.y;
       })
       .on('end', (event, node) => {
-        if (!event.active) simulation.alphaTarget(0);
+        if (!event.active) sim.alphaTarget(0);
         node.fx = null;
         node.fy = null;
       });
 
     (nodeSelection as d3.Selection<SVGCircleElement, SimulationNode, SVGGElement, unknown>).call(drag);
 
-    simulation.on('tick', () => {
+    sim.on('tick', () => {
       linkSelection
         .attr('x1', (link) => (link.source as SimulationNode).x ?? 0)
         .attr('y1', (link) => (link.source as SimulationNode).y ?? 0)
@@ -202,8 +217,14 @@ export function Graph() {
     zoomBehaviorRef.current = zoomBehavior;
     svg.call(zoomBehavior);
 
+    simulation = sim;
+    } catch (renderError) {
+      setError(renderError instanceof Error ? renderError.message : 'Failed to render graph');
+    }
+
     return () => {
-      simulation.stop();
+      simulation?.stop();
+      svg.on('.zoom', null);
     };
   }, [filteredGraph]);
 

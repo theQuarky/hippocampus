@@ -1,18 +1,26 @@
-// embed.ts — working CPU version, keep this
-import { pipeline } from '@xenova/transformers';
 import { EMBED_MODEL, EMBED_MAX_TOKENS } from './config';
 
 let embeddingPipeline: any = null;
 
 async function getEmbeddingPipeline() {
   if (!embeddingPipeline) {
-    embeddingPipeline = await pipeline(
-      'feature-extraction',
-      EMBED_MODEL,
-      {
-        quantized: true // speeds up inference
-      }
-    );
+    try {
+      const transformers = await import('@huggingface/transformers' as any);
+      embeddingPipeline = await transformers.pipeline(
+        'feature-extraction',
+        'Xenova/all-MiniLM-L6-v2',
+        { device: 'cuda', dtype: 'fp16' }
+      );
+      console.log('🔥 Embedding model loaded on GPU');
+    } catch {
+      // Fallback to CPU with @xenova/transformers
+      const { pipeline } = await import('@xenova/transformers');
+      embeddingPipeline = await pipeline(
+        'feature-extraction',
+        'Xenova/all-MiniLM-L6-v2'
+      );
+      console.log('💻 Embedding model loaded on CPU');
+    }
   }
   return embeddingPipeline;
 }
