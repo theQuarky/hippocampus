@@ -1,9 +1,14 @@
 // src/index.ts
 import { initDB, db } from './db';
 import { ingest, ingestText } from './ingest';
-import { retrieve } from './retrieve';
+import { retrieve, retrieveConcepts } from './retrieve';
 import { consolidateAll, abstractConcepts } from './consolidate';
+import { syncConceptEmbeddings } from './conceptSync';
 import { parseUrl } from './parser';
+import { runBenchmark } from './benchmark';
+import { buildContext } from './contextBuilder';
+import { generateGroundedAnswer } from './answer';
+import { ENABLE_GROUNDED_ANSWERS, CONTEXT_TOP_K, INCLUDE_CONCEPTS, DEBUG_PERF } from './config';
 import fs from 'fs';
 import path from 'path';
 import chokidar from 'chokidar';
@@ -147,16 +152,32 @@ async function main() {
 🧠 Hippocampus
 
   Chunking strategy (env):
-    CHUNK_STRATEGY=fast  (default heuristic chunker)
-    CHUNK_STRATEGY=llm   (Ollama-based semantic chunker)
+    CHUNK_STRATEGY=token  (default, tokenizer-based — best quality)
+    CHUNK_STRATEGY=fast   (heuristic chunker, no tokenizer)
+    CHUNK_STRATEGY=llm    (Ollama-based semantic chunker)
+
+  Environment toggles:
+    EMBED_MODEL         Embedding model (default: nomic-ai/nomic-embed-text-v1)
+    EMBED_DIMS          Embedding dimensions (default: 768)
+    EMBED_MAX_TOKENS    Max tokens per chunk (default: 512)
+    QDRANT_COLLECTION   Qdrant collection name (default: hippocampus)
+    OLLAMA_MODEL        LLM model for consolidation (default: phi3:mini)
+    ENABLE_LEARNING_WEIGHTS  Dynamic weights (default: true)
+    ENABLE_CONCEPT_VALIDATION  Concept self-validation (default: true)
+    INCLUDE_CONCEPTS    Include concepts in retrieval (default: false)
+    DEBUG_PERF          Performance timing logs (default: false)
+    DEBUG_CHUNKS        Chunk debug logs (default: false)
 
   Commands:
     ingest <file|url>    Feed a document or webpage into memory
     ingest-dir <folder>  Recursively ingest supported files from a folder
     watch <folder>       Watch folder for new/changed files and ingest
     query  <question>    Retrieve relevant knowledge
+    query-answer <question> Retrieve + generate grounded answer
     consolidate          Type weak connections once
     concepts             Build concept abstractions and print all concepts
+    sync-concepts        Sync concept embeddings to Qdrant (run after concepts)
+    benchmark            Run benchmark on fixed queries
     `);
     process.exit(0);
   }
@@ -194,6 +215,60 @@ async function main() {
         console.log(`── Result ${i + 1} (score: ${r.score.toFixed(4)}) [${r.source}]`);
         console.log(`${r.text}\n`);
       });
+      break;
+    }
+
+    case 'query-answer': {
+      if (!argument) { console.error('Usage: query-answer <question>'); process.exit(1); }
+
+      if (!ENABLE_GROUNDED_ANSWERS) {
+        console.log('ℹ️  Grounded answers disabled (ENABLE_GROUNDED_ANSWERS=false). Running plain retrieval.\n');
+        const results = await retrieve(argument);
+        console.log(`\n🔍 Query: "${argument}"\n`);
+        results.forEach((r, i) => {
+          console.log(`── Result ${i + 1} (score: ${r.score.toFixed(4)}) [${r.source}]`);
+          console.log(`${r.text}\n`);
+        });
+        break;
+      }
+
+      // Step 1: Retrieve chunks
+      const t0 = DEBUG_PERF ? Date.now() : 0;
+      const chunks = await retrieve(argument, CONTEXT_TOP_K);
+      if (DEBUG_PERF) console.log(`[PERF] retrieval: ${Date.now() - t0}ms`);
+
+      // Step 2: Retrieve concepts (if enabled)
+      const concepts = INCLUDE_CONCEPTS ? await retrieveConcepts(argument) : undefined;
+
+      // Step 3: Build context
+      const t1 = DEBUG_PERF ? Date.now() : 0;
+      const contextPackage = buildContext(
+        argument,
+        chunks.map(c => ({ chunk_id: c.chunk_id, text: c.text, source: c.source, score: c.score })),
+        concepts,
+      );
+      if (DEBUG_PERF) console.log(`[PERF] context_build: ${Date.now() - t1}ms`);
+
+      // Step 4: Generate answer (perf logged inside answer.ts)
+      const result = await generateGroundedAnswer(argument, contextPackage);
+
+      // Step 5: Print output
+      console.log(`\nAnswer:\n${result.answer}\n`);
+      if (result.sources.length > 0) {
+        console.log('Sources:');
+        result.sources.forEach(s => console.log(`- ${s}`));
+        console.log();
+      }
+      if (result.usedConcepts.length > 0) {
+        console.log('Concepts Used:');
+        result.usedConcepts.forEach(c => console.log(`- ${c}`));
+        console.log();
+      }
+      if (result.usedChunks.length > 0) {
+        console.log('Evidence Chunks:');
+        result.usedChunks.forEach(id => console.log(`- ${id}`));
+        console.log();
+      }
       break;
     }
 
@@ -238,6 +313,17 @@ async function main() {
         console.log(`   updated: ${concept.last_updated}`);
         console.log(`   ${concept.summary}\n`);
       });
+      break;
+    }
+
+    case 'benchmark': {
+      await runBenchmark();
+      break;
+    }
+
+    case 'sync-concepts': {
+      const result = await syncConceptEmbeddings();
+      console.log(`✅ Concept sync complete: ${result.synced} synced, ${result.skipped} skipped`);
       break;
     }
 

@@ -1,5 +1,6 @@
 // embed.ts — working CPU version, keep this
 import { pipeline } from '@xenova/transformers';
+import { EMBED_MODEL, EMBED_MAX_TOKENS } from './config';
 
 let embeddingPipeline: any = null;
 
@@ -7,7 +8,7 @@ async function getEmbeddingPipeline() {
   if (!embeddingPipeline) {
     embeddingPipeline = await pipeline(
       'feature-extraction',
-      'nomic-ai/nomic-embed-text-v1',
+      EMBED_MODEL,
       {
         quantized: true // speeds up inference
       }
@@ -16,10 +17,12 @@ async function getEmbeddingPipeline() {
   return embeddingPipeline;
 }
 
+// Rough char limit derived from token limit (avg 4 chars/token, conservative)
+const MAX_CHARS = EMBED_MAX_TOKENS * 12;
+
 export async function embed(text: string): Promise<number[]> {
   const pipe = await getEmbeddingPipeline();
-  // nomic max context is 2048 tokens (~8000 chars) — truncate to be safe
-  const truncated = text.slice(0, 6000);
+  const truncated = text.slice(0, MAX_CHARS);
   const result = await pipe(truncated, { pooling: 'mean', normalize: true });
   return Array.from(result.data);
 }
@@ -27,10 +30,9 @@ export async function embed(text: string): Promise<number[]> {
 export async function embedBatch(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
   const pipe = await getEmbeddingPipeline();
-  // truncate each text and use small batches
-  const truncated = texts.map(t => t.slice(0, 6000));
+  const truncated = texts.map(t => t.slice(0, MAX_CHARS));
   const result = await pipe(truncated, { pooling: 'mean', normalize: true });
-  
+
   if (Array.isArray(result)) {
     return result.map((row: any) => Array.from(row.data ?? row));
   }

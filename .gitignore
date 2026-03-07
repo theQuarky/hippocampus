@@ -25,6 +25,13 @@ dist/
 build/
 .next/
 
+# Data & runtime artifacts
+data/
+uploads/
+hippocampus.db
+hippocampus.db-shm
+hippocampus.db-wal
+
 # Logs
 logs/
 *.log

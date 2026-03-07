@@ -4,6 +4,7 @@ import { stat } from 'node:fs/promises';
 import { embedBatch } from './embed';
 import { parseFile } from './parser';
 import { semanticChunkText, Chunk } from './semanticChunk';
+import { tokenChunkText } from './tokenChunk';
 import { llmChunkText } from './llmChunk';
 import { db, qdrant, COLLECTION } from './db';
 import { ProgressBar } from './progress';
@@ -94,35 +95,44 @@ function rateForStage(chunks: number, milliseconds: number): string {
   return ((chunks * 1000) / milliseconds).toFixed(1);
 }
 
-async function searchSimilar(vector: number[]): Promise<{ topScore: number; similarIds: string[] }> {
+async function searchSimilar(vector: number[]): Promise<{ topScore: number; similarIds: string[]; scoreMap: Map<string, number> }> {
   try {
     const results = await qdrant.search(COLLECTION, {
       vector, limit: 6, with_payload: true, with_vector: false,
     }) as SimilarChunkHit[];
+
+    const scoreMap = new Map<string, number>();
+    for (const r of results) {
+      const id = r.payload?.chunk_id;
+      if (id) scoreMap.set(id, r.score ?? 0);
+    }
+
     return {
       topScore: results[0]?.score ?? 0,
       similarIds: results.map(r => r.payload?.chunk_id).filter((id): id is string => Boolean(id)),
+      scoreMap,
     };
   } catch {
-    return { topScore: 0, similarIds: [] };
+    return { topScore: 0, similarIds: [], scoreMap: new Map() };
   }
 }
 
 function seedConnectionsBatch(
-  entries: { sourceId: string; targetIds: string[] }[],
+  entries: { sourceId: string; targetIds: string[]; scoreMap?: Map<string, number> }[],
   timestamp: string,
 ): number {
   const insertStmt = db.prepare(`
-    INSERT OR IGNORE INTO connections (edge_id, source_chunk, target_chunk, relationship, weight, confidence, created_at, last_reinforced)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO connections (edge_id, source_chunk, target_chunk, relationship, weight, confidence, created_at, last_reinforced, avg_sim, seen_count, last_seen)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const insertAll = db.transaction((items: { sourceId: string; targetIds: string[] }[]) => {
+  const insertAll = db.transaction((items: { sourceId: string; targetIds: string[]; scoreMap?: Map<string, number> }[]) => {
     let total = 0;
-    for (const { sourceId, targetIds } of items) {
+    for (const { sourceId, targetIds, scoreMap } of items) {
       for (const targetId of targetIds) {
         if (targetId === sourceId) continue;
-        const result = insertStmt.run(uuidv4(), sourceId, targetId, 'related_to', 0.3, 0.5, timestamp, null);
+        const sim = scoreMap?.get(targetId) ?? 0;
+        const result = insertStmt.run(uuidv4(), sourceId, targetId, 'related_to', 0.3, 0.5, timestamp, null, sim, 1, timestamp);
         total += result.changes;
       }
     }
@@ -278,7 +288,12 @@ export async function ingestText(
   }, 5000);
 
   let chunks: Chunk[];
-  const chunkFn = process.env.CHUNK_STRATEGY === 'llm' ? llmChunkText : semanticChunkText;
+  const strategy = process.env.CHUNK_STRATEGY ?? 'token';
+  const chunkFn = strategy === 'llm'
+    ? llmChunkText
+    : strategy === 'fast'
+      ? semanticChunkText
+      : tokenChunkText;
   try {
     chunks = await chunkFn(text);
   } finally {
@@ -432,17 +447,17 @@ export async function ingestText(
       const skipSearch = skipDuplicateCheck && deferGraphBuild;
       const searchStart = Date.now();
       const searchResults = skipSearch
-        ? batch.map(() => ({ topScore: 0, similarIds: [] as string[] }))
+        ? batch.map(() => ({ topScore: 0, similarIds: [] as string[], scoreMap: new Map<string, number>() }))
         : await Promise.all(vectors.map(v => searchSimilar(v)));
       const searchMs = skipSearch ? 0 : (Date.now() - searchStart);
       perfTotals.qdrantSearchMs += searchMs;
       perfCounts.qdrantSearchChunks += skipSearch ? 0 : batch.length;
 
       // Filter duplicates
-      type StoreItem = { chunk: Chunk; chunkId: string; vector: number[]; timestamp: string; similarIds: string[] };
+      type StoreItem = { chunk: Chunk; chunkId: string; vector: number[]; timestamp: string; similarIds: string[]; scoreMap: Map<string, number> };
       const toStore: StoreItem[] = [];
       for (let j = 0; j < batch.length; j++) {
-        const { topScore, similarIds } = searchResults[j];
+        const { topScore, similarIds, scoreMap } = searchResults[j];
         if (!skipDuplicateCheck && topScore >= duplicateThreshold) {
           skipped++;
           progress.tick({ duplicates: 1 });
@@ -455,6 +470,7 @@ export async function ingestText(
           vector: vectors[j],
           timestamp: new Date().toISOString(),
           similarIds: deferGraphBuild ? [] : similarIds,
+          scoreMap: deferGraphBuild ? new Map() : scoreMap,
         });
       }
 
@@ -507,7 +523,7 @@ export async function ingestText(
       let seedingMs = 0;
       if (!deferGraphBuild) {
         const seedStart = Date.now();
-        const entries = toStore.map(c => ({ sourceId: c.chunkId, targetIds: c.similarIds }));
+        const entries = toStore.map(c => ({ sourceId: c.chunkId, targetIds: c.similarIds, scoreMap: c.scoreMap }));
         const conns = seedConnectionsBatch(entries, ingestTimestamp);
         seededConnections += conns;
         seedingMs = Date.now() - seedStart;
@@ -543,6 +559,7 @@ export async function ingestText(
         const entries = seedBatch.map((s, j) => ({
           sourceId: s.chunkId,
           targetIds: searchResults[j].similarIds,
+          scoreMap: searchResults[j].scoreMap,
         }));
         const conns = seedConnectionsBatch(entries, ingestTimestamp);
         seededConnections += conns;

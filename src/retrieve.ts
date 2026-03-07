@@ -1,9 +1,9 @@
 // src/retrieve.ts
 import { embed } from './embed';
-import { db, qdrant, COLLECTION } from './db';
+import { db, qdrant, COLLECTION, CONCEPT_COLLECTION } from './db';
+import { INCLUDE_CONCEPTS, DEBUG_PERF, CONCEPT_BOOST, CONCEPT_TOP_K, CONCEPT_MIN_SCORE } from './config';
 
 const GRAPH_BOOST_FACTOR = 0.05;
-// Example: vector score 0.72 + (connection weight 0.3 * boost factor 0.15) = 0.765
 const MAX_RERANK_CANDIDATES = 20;
 
 type CrossEncoder = (input: any, options?: any) => Promise<any>;
@@ -195,8 +195,81 @@ export async function retrieve(query: string, topK: number = 20): Promise<Result
     }
   }
 
-  const mergedPool = [...vectorCandidates, ...graphCandidatesById.values()]
-    .sort((a, b) => b.score - a.score);
+  const mergedPool = [...vectorCandidates, ...graphCandidatesById.values()];
+
+  // PHASE 6: Concept-boosted retrieval via dedicated Qdrant collection
+  if (INCLUDE_CONCEPTS) {
+    const t0 = DEBUG_PERF ? Date.now() : 0;
+    try {
+      // Search the concept vector collection — no in-process embedding needed
+      const conceptHits = await qdrant.search(CONCEPT_COLLECTION, {
+        vector,
+        limit: CONCEPT_TOP_K,
+        with_payload: true,
+        score_threshold: CONCEPT_MIN_SCORE,
+      });
+
+      let expandedCount = 0;
+
+      for (const hit of conceptHits) {
+        const payload = hit.payload as any;
+        if (!payload) continue;
+
+        const conceptSimilarity = hit.score ?? 0;
+        const confidence = typeof payload.confidence === 'number' ? payload.confidence : 0.5;
+
+        // Parse member_chunks from payload
+        let memberChunks: string[] = [];
+        if (Array.isArray(payload.member_chunks)) {
+          memberChunks = payload.member_chunks;
+        } else if (typeof payload.member_chunks === 'string') {
+          try { memberChunks = JSON.parse(payload.member_chunks); } catch { continue; }
+        } else {
+          continue;
+        }
+
+        // Score fusion: concept_similarity * (0.5 + 0.5 * confidence) * CONCEPT_BOOST
+        // Then add to the base score of the weakest vector candidate
+        const membershipFactor = conceptSimilarity * (0.5 + 0.5 * confidence);
+
+        for (const memberId of memberChunks) {
+          if (vectorChunkIds.has(memberId)) continue;
+          if (graphCandidatesById.has(memberId)) continue;
+
+          const chunkRow = chunkStmt.get(memberId) as { text: string; source: string } | undefined;
+          if (!chunkRow) continue;
+
+          // Base score = weakest vector hit score, boosted by concept fusion
+          const baseScore = vectorCandidates.length > 0
+            ? vectorCandidates[vectorCandidates.length - 1].score
+            : 0.5;
+          const fusedScore = baseScore + (membershipFactor * CONCEPT_BOOST);
+
+          mergedPool.push({
+            text: chunkRow.text,
+            source: chunkRow.source,
+            score: fusedScore,
+            chunk_id: memberId,
+            graph_boosted: true,
+          });
+          expandedCount++;
+        }
+      }
+
+      if (DEBUG_PERF) {
+        const elapsed = Date.now() - t0;
+        console.log(`[PERF] Concept search: ${conceptHits.length} hits, ${expandedCount} chunks expanded, ${elapsed}ms`);
+      }
+    } catch (error) {
+      // Concept retrieval is optional — don't fail the query
+      if (DEBUG_PERF) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.warn(`⚠️  Concept retrieval failed: ${msg}`);
+      }
+    }
+  }
+
+  mergedPool.sort((a, b) => b.score - a.score);
 
   if (mergedPool.length <= 1) {
     for (const result of mergedPool) {
@@ -237,3 +310,56 @@ export async function retrieve(query: string, topK: number = 20): Promise<Result
   return filtered;
 }
 
+// ── Concept retrieval for grounded answer pipeline ─────────────────────────
+
+export interface ConceptResult {
+  concept_id: string;
+  label: string;
+  summary: string;
+  confidence: number;
+}
+
+export async function retrieveConcepts(query: string, topK: number = CONCEPT_TOP_K): Promise<ConceptResult[]> {
+  const t0 = DEBUG_PERF ? Date.now() : 0;
+
+  try {
+    const vector = await embed(query);
+    const hits = await qdrant.search(CONCEPT_COLLECTION, {
+      vector,
+      limit: topK,
+      with_payload: true,
+      score_threshold: CONCEPT_MIN_SCORE,
+    });
+
+    const results: ConceptResult[] = [];
+
+    for (const hit of hits) {
+      const payload = hit.payload as any;
+      if (!payload) continue;
+
+      const conceptId = payload.concept_id ?? '';
+      const label = payload.label ?? '';
+      const summary = payload.summary ?? '';
+      const confidence = typeof payload.confidence === 'number' ? payload.confidence : 0.5;
+
+      if (!label) continue;
+
+      results.push({
+        concept_id: conceptId,
+        label,
+        summary,
+        confidence,
+      });
+    }
+
+    if (DEBUG_PERF) {
+      console.log(`[PERF] concept_retrieval: ${Date.now() - t0}ms (${results.length} concepts)`);
+    }
+
+    return results;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (DEBUG_PERF) console.warn(`⚠️  Concept retrieval failed: ${msg}`);
+    return [];
+  }
+}

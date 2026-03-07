@@ -2,34 +2,50 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
 import Database from 'better-sqlite3';
 import path from 'path';
+import { EMBED_DIMS, QDRANT_URL, QDRANT_COLLECTION } from './config';
 
-const COLLECTION = 'hippocampus';
-const VECTOR_SIZE = 768;
+const COLLECTION = QDRANT_COLLECTION;
+const CONCEPT_COLLECTION = `${QDRANT_COLLECTION}_concepts`;
+const VECTOR_SIZE = EMBED_DIMS;
 
 // ── Qdrant ─────────────────────────────────────────
-export const qdrant = new QdrantClient({ url: 'http://localhost:6333' });
+export const qdrant = new QdrantClient({ url: QDRANT_URL });
 
 export async function initQdrant() {
   const existing = await qdrant.getCollections();
   const exists = existing.collections.some(c => c.name === COLLECTION);
-  
+
   if (!exists) {
     await qdrant.createCollection(COLLECTION, {
       vectors: { size: VECTOR_SIZE, distance: 'Cosine' }
     });
-    console.log('✅ Qdrant collection created');
+    console.log(`✅ Qdrant collection "${COLLECTION}" created (dims=${VECTOR_SIZE})`);
+  } else {
+    // Validate that existing collection vector size matches EMBED_DIMS
+    const info = await qdrant.getCollection(COLLECTION);
+    const collectionSize = (info.config?.params?.vectors as any)?.size;
+    if (typeof collectionSize === 'number' && collectionSize !== VECTOR_SIZE) {
+      console.error(
+        `\n❌ Qdrant collection "${COLLECTION}" has vector size ${collectionSize}, ` +
+        `but EMBED_DIMS is ${VECTOR_SIZE}.\n` +
+        `   Either:\n` +
+        `   1) Delete and recreate the collection: curl -X DELETE ${QDRANT_URL}/collections/${COLLECTION}\n` +
+        `   2) Use a different collection name: QDRANT_COLLECTION=my_new_collection\n`
+      );
+      process.exit(1);
+    }
   }
 }
 
-export { COLLECTION };
+export { COLLECTION, CONCEPT_COLLECTION };
 
 // ── SQLite ─────────────────────────────────────────
-const DB_PATH = path.join(process.cwd(), 'hippocampus.db');
+const DB_PATH = process.env.DB_PATH ?? path.join(process.cwd(), 'hippocampus.db');
 export const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
 
-function addColumnIfMissing(table: string, definition: string) {
+export function addColumnIfMissing(table: string, definition: string) {
   try {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition};`);
   } catch (error) {
@@ -94,10 +110,51 @@ export function initSQLite() {
   addColumnIfMissing('chunks', 'contradiction_flag INTEGER DEFAULT 0');
   addColumnIfMissing('connections', 'last_reinforced TEXT');
 
+  // PHASE 4 — learning weight columns on connections
+  addColumnIfMissing('connections', 'support_count INTEGER DEFAULT 0');
+  addColumnIfMissing('connections', 'contradict_count INTEGER DEFAULT 0');
+  addColumnIfMissing('connections', 'seen_count INTEGER DEFAULT 0');
+  addColumnIfMissing('connections', 'last_seen TEXT');
+  addColumnIfMissing('connections', 'avg_sim REAL DEFAULT 0');
+  addColumnIfMissing('connections', 'evidence_score REAL DEFAULT 0');
+  addColumnIfMissing('connections', 'weight_version INTEGER DEFAULT 1');
+
+  // PHASE 5 — concept confidence/version
+  addColumnIfMissing('concepts', 'confidence REAL DEFAULT 0.5');
+  addColumnIfMissing('concepts', 'version INTEGER DEFAULT 1');
+
+  // PHASE 6 — concept embedding sync tracking
+  addColumnIfMissing('concepts', 'embedding_version INTEGER DEFAULT 0');
+  addColumnIfMissing('concepts', 'embedding_updated_at TEXT');
+
   console.log('✅ SQLite schema ready');
+}
+
+async function initConceptQdrant() {
+  const existing = await qdrant.getCollections();
+  const exists = existing.collections.some(c => c.name === CONCEPT_COLLECTION);
+
+  if (!exists) {
+    await qdrant.createCollection(CONCEPT_COLLECTION, {
+      vectors: { size: VECTOR_SIZE, distance: 'Cosine' }
+    });
+    console.log(`✅ Qdrant concept collection "${CONCEPT_COLLECTION}" created (dims=${VECTOR_SIZE})`);
+  } else {
+    const info = await qdrant.getCollection(CONCEPT_COLLECTION);
+    const collectionSize = (info.config?.params?.vectors as any)?.size;
+    if (typeof collectionSize === 'number' && collectionSize !== VECTOR_SIZE) {
+      console.error(
+        `\n❌ Qdrant concept collection "${CONCEPT_COLLECTION}" has vector size ${collectionSize}, ` +
+        `but EMBED_DIMS is ${VECTOR_SIZE}.\n` +
+        `   Delete and recreate: curl -X DELETE ${QDRANT_URL}/collections/${CONCEPT_COLLECTION}\n`
+      );
+      process.exit(1);
+    }
+  }
 }
 
 export async function initDB() {
   await initQdrant();
+  await initConceptQdrant();
   initSQLite();
 }

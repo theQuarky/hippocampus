@@ -3,7 +3,7 @@
 
 export interface Chunk { text: string; index: number; }
 
-const OLLAMA_URL = 'http://localhost:11434/api/generate';
+const OLLAMA_URL = `${process.env.OLLAMA_URL ?? 'http://localhost:11434'}/api/generate`;
 const DEFAULT_MODEL = process.env.OLLAMA_CHUNK_MODEL ?? 'phi3:mini';
 const WINDOW_TOKENS = 1200;
 const OVERLAP_TOKENS = 200;

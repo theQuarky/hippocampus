@@ -60,6 +60,86 @@ function cleanPdfText(text: string): string {
     .replace(/-\n([a-z])/g, '$1')
     .trim();
 }
+
+/**
+ * Remove repeated page headers/footers, page numbers, and chapter lines.
+ * Uses frequency-based detection: lines appearing on many "pages" are noise.
+ */
+export function stripPdfNoise(text: string): string {
+  // Split into pseudo-pages (form-feed or clusters of blank lines)
+  const pages = text.split(/\f|\n{4,}/);
+  if (pages.length < 2) {
+    // Not enough pages to detect noise heuristically — just do pattern removal
+    return stripPatternNoise(text);
+  }
+
+  // Count line frequency across pages (trimmed, normalized whitespace)
+  const lineFrequency = new Map<string, number>();
+  for (const page of pages) {
+    const lines = page.split('\n').map(l => l.trim()).filter(Boolean);
+    // Use a set to count each unique line only once per page
+    const seen = new Set<string>();
+    for (const line of lines) {
+      const normalized = line.replace(/\s+/g, ' ');
+      if (normalized.length > 120) continue; // skip long lines — not headers
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        lineFrequency.set(normalized, (lineFrequency.get(normalized) ?? 0) + 1);
+      }
+    }
+  }
+
+  // Lines appearing on >30% of pages are likely headers/footers
+  const threshold = Math.max(3, Math.floor(pages.length * 0.3));
+  const noiseLines = new Set<string>();
+  for (const [line, count] of lineFrequency) {
+    if (count >= threshold) {
+      noiseLines.add(line);
+    }
+  }
+
+  // Remove noise lines and apply pattern-based removal
+  // Split on newlines AND form-feeds so \f doesn't hide header text
+  const outputLines: string[] = [];
+  for (const rawLine of text.split(/\n|\f/)) {
+    const normalized = rawLine.trim().replace(/\s+/g, ' ');
+    if (noiseLines.has(normalized)) continue;
+    outputLines.push(rawLine);
+  }
+
+  return stripPatternNoise(outputLines.join('\n'));
+}
+
+/**
+ * Remove lines matching common PDF noise patterns.
+ */
+function stripPatternNoise(text: string): string {
+  const lines = text.split('\n');
+  const cleaned: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Page numbers (standalone digits, possibly with surrounding whitespace)
+    if (/^\d{1,4}$/.test(trimmed)) continue;
+
+    // "Page X of Y" etc.
+    if (/^page\s+\d+(\s+of\s+\d+)?$/i.test(trimmed)) continue;
+
+    // Chapter headings: "CHAPTER 1", "Chapter 12", etc.
+    if (/^CHAPTER\s+\d+/i.test(trimmed) && trimmed.length < 40) continue;
+
+    // Form feed characters
+    if (trimmed === '\f') continue;
+
+    cleaned.push(line);
+  }
+
+  // Normalize whitespace: collapse 3+ newlines → 2 (paragraph break), preserve single/double
+  return cleaned.join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 export async function parseUrl(url: string): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
@@ -81,7 +161,7 @@ export async function parseUrl(url: string): Promise<string> {
     if (contentType.includes('application/pdf')) {
       const pdfBuffer = Buffer.from(await response.arrayBuffer());
       const data = await pdfParse(pdfBuffer);
-      return cleanPdfText(data.text);
+      return stripPdfNoise(cleanPdfText(data.text));
     }
 
     if (contentType.includes('text/html')) {
@@ -138,7 +218,7 @@ export async function parseFile(filePath: string): Promise<string> {
     case '.pdf': {
       const buffer = fs.readFileSync(filePath);
       const data = await pdfParse(buffer);
-      return cleanPdfText(data.text);
+      return stripPdfNoise(cleanPdfText(data.text));
     }
 
     case '.docx': {
