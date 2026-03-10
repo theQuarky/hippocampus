@@ -1,123 +1,26 @@
-// src/retrieve.ts
-import { embed } from './embed';
-import { db, qdrant, COLLECTION, CONCEPT_COLLECTION } from './db';
-import { INCLUDE_CONCEPTS, DEBUG_PERF, CONCEPT_BOOST, CONCEPT_TOP_K, CONCEPT_MIN_SCORE } from './config';
-import type { RetrievalLayer } from './types/evidence';
+// src/retrieve/index.ts
+import { embed } from '../embed';
+import { db, qdrant, COLLECTION, CONCEPT_COLLECTION } from '../db';
+import { INCLUDE_CONCEPTS, DEBUG_PERF, CONCEPT_BOOST, CONCEPT_TOP_K, CONCEPT_MIN_SCORE } from '../config';
+import type { RetrievalLayer } from '../types/evidence';
 
 const GRAPH_BOOST_FACTOR = 0.05;
 const MAX_RERANK_CANDIDATES = 20;
 
-type CrossEncoder = (input: any, options?: any) => Promise<any>;
-let crossEncoderPromise: Promise<CrossEncoder | null> | null = null;
-
-
-
-
-async function getCrossEncoder() {
-  const { pipeline, env } = await import('@xenova/transformers') as any;
-  env.allowLocalModels = false;
-
-  if (!crossEncoderPromise) {
-    crossEncoderPromise = (async () => {
-      try {
-        return await pipeline('text-classification', 'Xenova/ms-marco-MiniLM-L-6-v2');
-      } catch (error) {
-        console.error('❌ Re-ranker load failed:', error);
-        return null;
-      }
-    })();
-  }
-  return crossEncoderPromise;
-}
-export async function warmupReranker(): Promise<void> {
-  const startedAt = Date.now();
-  const model = await getCrossEncoder();
-  const elapsedMs = Date.now() - startedAt;
-
-  if (model) {
-    console.log(`🔥 Re-ranker warmup complete in ${elapsedMs}ms`);
-  }
-}
-
-function extractScore(output: any): number | undefined {
-  if (typeof output === 'number') return output;
-
-  if (Array.isArray(output)) {
-    if (output.length === 0) return undefined;
-
-    const first = output[0];
-    if (Array.isArray(first)) return extractScore(first[0]);
-    if (first && typeof first.score === 'number') return first.score;
-
-    return extractScore(first);
-  }
-
-  if (output && typeof output.score === 'number') return output.score;
-  if (output && output.data) return extractScore(output.data);
-
-  return undefined;
-}
-
-async function predictRelevanceScore(crossEncoder: CrossEncoder, query: string, candidateText: string): Promise<number> {
-  const attempts = [
-    () => crossEncoder(query, { text_pair: candidateText, topk: 1 }),
-    () => crossEncoder({ text: query, text_pair: candidateText }, { topk: 1 }),
-    () => crossEncoder([query, candidateText], { topk: 1 }),
-    () => crossEncoder([[query, candidateText]], { topk: 1 })
-  ];
-
-  let lastError: unknown;
-
-  for (const attempt of attempts) {
-    try {
-      const output = await attempt();
-      const score = extractScore(output);
-
-      if (typeof score === 'number' && Number.isFinite(score)) {
-        return score;
-      }
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw new Error(`Unable to extract rerank score from cross-encoder output${lastError ? `: ${String(lastError)}` : ''}`);
-}
-
-// async function rerankCandidates(query: string, candidates: Result[]): Promise<Result[]> {
-//   if (candidates.length <= 1) return candidates;
-
-//   const crossEncoder = await getCrossEncoder();
-//   if (!crossEncoder) return candidates;
-
-//   const startedAt = Date.now();
-
-//   try {
-//     const reranked: Result[] = [];
-
-//     for (const candidate of candidates) {
-//       const rerank_score = await predictRelevanceScore(crossEncoder, query, candidate.text);
-//       reranked.push({
-//         ...candidate,
-//         rerank_score
-//       });
-//     }
-
-//     reranked.sort((a, b) => (b.rerank_score ?? Number.NEGATIVE_INFINITY) - (a.rerank_score ?? Number.NEGATIVE_INFINITY));
-
-//     const elapsedMs = Date.now() - startedAt;
-//     console.log(`🔢 Re-ranked ${reranked.length} candidates in ${elapsedMs}ms`);
-
-//     return reranked;
-//   } catch (error) {
-//     console.warn('⚠️ Re-ranking failed. Falling back to vector/graph score ordering.', error);
-//     return candidates;
-//   }
-// }
-
-// Replace rerankCandidates with a no-op that just returns sorted by score
-async function rerankCandidates(query: string, candidates: Result[]): Promise<Result[]> {
-  return candidates; // vector + graph scores are good enough
+/**
+ * Rescale scores to spread out tightly clustered results.
+ * All-MiniLM-L6-v2 compresses cosine similarities into ~0.50–0.75.
+ * We apply a power curve relative to the top score so the best result
+ * stays at its raw value but weaker results fall off faster.
+ */
+function rescorePool(candidates: Result[]): Result[] {
+  if (candidates.length === 0) return candidates;
+  const top = candidates[0].score;
+  if (top <= 0) return candidates;
+  return candidates.map(c => ({
+    ...c,
+    score: top * Math.pow(c.score / top, 2.5),
+  }));
 }
 
 export interface Result {
@@ -126,7 +29,6 @@ export interface Result {
   score: number;
   chunk_id: string;
   graph_boosted: boolean;
-  rerank_score?: number;
   retrieval_layer: RetrievalLayer;
 }
 
@@ -275,9 +177,11 @@ export async function retrieve(query: string, topK: number = 20): Promise<Result
   }
 
   mergedPool.sort((a, b) => b.score - a.score);
+  const rescored = rescorePool(mergedPool);
+  rescored.sort((a, b) => b.score - a.score);
 
-  if (mergedPool.length <= 1) {
-    for (const result of mergedPool) {
+  if (rescored.length <= 1) {
+    for (const result of rescored) {
       db.prepare(`
         UPDATE chunks
         SET access_count = access_count + 1,
@@ -286,17 +190,12 @@ export async function retrieve(query: string, topK: number = 20): Promise<Result
       `).run(new Date().toISOString(), result.chunk_id);
     }
 
-    return mergedPool;
+    return rescored;
   }
 
-  const rerankPool = mergedPool.slice(0, MAX_RERANK_CANDIDATES);
-  const rankedPool = await rerankCandidates(query, rerankPool);
-
-  const filtered = rankedPool
-    .filter(candidate => {
-      const s = candidate.rerank_score ?? candidate.score ?? 0;
-      return s >= MIN_SCORE;
-    })
+  const filtered = rescored
+    .slice(0, MAX_RERANK_CANDIDATES)
+    .filter((candidate: Result) => candidate.score >= MIN_SCORE)
     .slice(0, 5);
 
   if (filtered.length === 0) return [];
@@ -323,6 +222,144 @@ export interface ConceptResult {
   summary: string;
   confidence: number;
 }
+
+// ── Modular pipeline functions (used by queryAnswer) ───────────────────────
+
+/**
+ * Vector-only search: takes a pre-computed embedding and returns top-k chunks.
+ * Does NOT embed internally — the caller is responsible for embedding.
+ */
+export async function retrieveByVector(embedding: number[], k: number = 10): Promise<Result[]> {
+  const hits = await qdrant.search(COLLECTION, {
+    vector: embedding,
+    limit: k,
+    with_payload: true,
+  });
+
+  if (hits.length === 0) return [];
+
+  const results: Result[] = [];
+  for (const hit of hits) {
+    const payload = hit.payload as any;
+    const chunk_id = payload?.chunk_id;
+    if (!chunk_id) continue;
+
+    results.push({
+      text: payload.text ?? '',
+      source: payload.source ?? '',
+      score: hit.score ?? 0,
+      chunk_id,
+      graph_boosted: false,
+      retrieval_layer: 'vector',
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Expand retrieval using the concept graph.
+ * Finds concepts related to the query embedding, then retrieves member chunks.
+ */
+export async function expandWithConcepts(
+  embedding: number[],
+  maxChunks: number = 20,
+  topK: number = CONCEPT_TOP_K,
+): Promise<Result[]> {
+  try {
+    const conceptHits = await qdrant.search(CONCEPT_COLLECTION, {
+      vector: embedding,
+      limit: topK,
+      with_payload: true,
+      score_threshold: CONCEPT_MIN_SCORE,
+    });
+
+    if (conceptHits.length === 0) return [];
+
+    const chunkStmt = db.prepare('SELECT text, source FROM chunks WHERE chunk_id = ?');
+    const results: Result[] = [];
+
+    for (const hit of conceptHits) {
+      const payload = hit.payload as any;
+      if (!payload) continue;
+
+      const conceptSimilarity = hit.score ?? 0;
+      const confidence = typeof payload.confidence === 'number' ? payload.confidence : 0.5;
+
+      let memberChunks: string[] = [];
+      if (Array.isArray(payload.member_chunks)) {
+        memberChunks = payload.member_chunks;
+      } else if (typeof payload.member_chunks === 'string') {
+        try { memberChunks = JSON.parse(payload.member_chunks); } catch { continue; }
+      } else {
+        continue;
+      }
+
+      const membershipFactor = conceptSimilarity * (0.5 + 0.5 * confidence);
+
+      for (const memberId of memberChunks) {
+        if (results.length >= maxChunks) break;
+
+        const chunkRow = chunkStmt.get(memberId) as { text: string; source: string } | undefined;
+        if (!chunkRow) continue;
+
+        const fusedScore = membershipFactor * CONCEPT_BOOST + conceptSimilarity;
+
+        results.push({
+          text: chunkRow.text,
+          source: chunkRow.source,
+          score: fusedScore,
+          chunk_id: memberId,
+          graph_boosted: true,
+          retrieval_layer: 'concept',
+        });
+      }
+
+      if (results.length >= maxChunks) break;
+    }
+
+    return results;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn(`⚠️  expandWithConcepts failed: ${msg}`);
+    return [];
+  }
+}
+
+/**
+ * Merge multiple result arrays, deduplicating by chunk_id.
+ * When duplicates exist, the entry with the highest score is kept.
+ */
+export function mergeChunks(...arrays: Result[][]): Result[] {
+  const byId = new Map<string, Result>();
+
+  for (const arr of arrays) {
+    for (const chunk of arr) {
+      const existing = byId.get(chunk.chunk_id);
+      if (!existing || chunk.score > existing.score) {
+        byId.set(chunk.chunk_id, chunk);
+      }
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
+/**
+ * Rank chunks by score descending. Optionally boost concept-layer results.
+ */
+export function rankChunks(chunks: Result[], conceptBoost: number = CONCEPT_BOOST): Result[] {
+  const boosted = chunks.map(chunk => {
+    if (chunk.retrieval_layer === 'concept') {
+      return { ...chunk, score: chunk.score + conceptBoost };
+    }
+    return chunk;
+  });
+
+  return boosted.sort((a, b) => b.score - a.score);
+}
+
+// ── Concept retrieval for grounded answer pipeline ─────────────────────────
 
 export async function retrieveConcepts(query: string, topK: number = CONCEPT_TOP_K): Promise<ConceptResult[]> {
   const t0 = DEBUG_PERF ? Date.now() : 0;

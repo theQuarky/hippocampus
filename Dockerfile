@@ -64,4 +64,4 @@ ENV TRANSFORMERS_CACHE=/app/models
 # Default: run server
 # Override for CLI: docker run hippocampus dist/index.js ingest /uploads/file.pdf
 ENTRYPOINT ["node"]
-CMD ["dist/server.js"]
+CMD ["dist/server/index.js"]

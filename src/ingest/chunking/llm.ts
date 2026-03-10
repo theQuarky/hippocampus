@@ -1,5 +1,7 @@
-// src/llmChunk.ts
+// src/ingest/chunking/llm.ts
 // Expected: ~30-60s per 100 pages at concurrency 3 with phi3:mini
+
+import { splitSentences } from './segment';
 
 export interface Chunk { text: string; index: number; }
 
@@ -14,8 +16,8 @@ const SYSTEM_PROMPT = `You are a precise document segmentation assistant.
 Your job is to split text into semantically coherent chunks.
 Each chunk must cover exactly ONE complete idea or topic.
 Rules:
-- Minimum chunk size: 60 words
-- Maximum chunk size: 400 words
+- Minimum chunk size: ${MIN_WORDS} words
+- Maximum chunk size: ${MAX_WORDS} words
 - Never cut mid-sentence
 - Never cut mid-paragraph if avoidable
 - Prefer splitting at paragraph breaks and topic shifts
@@ -25,15 +27,6 @@ function approxTokens(s: string): number {
   return Math.ceil(s.length / 4);
 }
 
-function sentenceSplit(text: string): string[] {
-  const seg = new Intl.Segmenter('en', { granularity: 'sentence' });
-  const out: string[] = [];
-  for (const part of seg.segment(text)) {
-    const s = String(part.segment).trim();
-    if (s) out.push(s);
-  }
-  return out;
-}
 
 function fallbackParagraphSplit(text: string): string[] {
   const chunks = text
@@ -91,7 +84,7 @@ async function chunkWindow(text: string, model: string): Promise<string[]> {
 }
 
 function splitIntoWindows(text: string, windowTokens: number, overlapTokens: number): string[] {
-  const sentences = sentenceSplit(text);
+  const sentences = splitSentences(text);
   if (sentences.length === 0) return [text.trim()].filter(Boolean);
 
   const windows: string[] = [];

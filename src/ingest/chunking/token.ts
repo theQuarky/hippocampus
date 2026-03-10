@@ -1,4 +1,4 @@
-// src/tokenChunk.ts — Token-aware chunking using actual tokenizer
+// src/ingest/chunking/token.ts — Token-aware chunking using actual tokenizer
 // Replaces approxTokens-based sizing with real token counts.
 import { AutoTokenizer } from '@xenova/transformers';
 import { splitSentences } from './segment';
@@ -9,7 +9,7 @@ import {
   CHUNK_TARGET_MAX_TOKENS,
   CHUNK_OVERLAP_TOKENS,
   DEBUG_CHUNKS,
-} from './config';
+} from '../../config';
 
 export interface Chunk {
   text: string;

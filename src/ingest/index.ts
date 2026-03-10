@@ -1,13 +1,14 @@
-// src/ingest.ts
+// src/ingest/index.ts
 import { v4 as uuidv4 } from 'uuid';
 import { stat } from 'node:fs/promises';
-import { embedBatch } from './embed';
+import { embedBatch } from '../embed';
 import { parseFile } from './parser';
-import { semanticChunkText, Chunk } from './semanticChunk';
-import { tokenChunkText } from './tokenChunk';
-import { llmChunkText } from './llmChunk';
-import { db, qdrant, COLLECTION } from './db';
-import { ProgressBar } from './progress';
+import { semanticChunkText, Chunk } from './chunking/semantic';
+import { tokenChunkText } from './chunking/token';
+import { llmChunkText } from './chunking/llm';
+import { db, qdrant, COLLECTION } from '../db';
+import { ProgressBar } from '../progress';
+import { isCitationChunk, isGlossaryChunk } from './filters';
 
 /*
 Example terminal output:
@@ -167,17 +168,6 @@ function formatDurationApprox(totalSeconds: number): string {
   return `${minutes}m ${seconds}s`;
 }
 
-function isGlossaryChunk(text: string): boolean {
-  const lines = text.split('\n').filter((line) => line.trim());
-  if (lines.length === 0) return false;
-
-  const defLines = lines.filter(
-    (line) => /^[A-Z][a-z]+.*[A-Z][a-z]/.test(line) && line.length < 120
-  );
-
-  return defLines.length / lines.length > 0.5 && lines.length > 5;
-}
-
 export async function ingest(
   filePath: string,
   tags: string[] = [],
@@ -300,13 +290,13 @@ export async function ingestText(
     clearInterval(chunkingHeartbeat);
   }
 
-  const glossaryFiltered = chunks.filter((chunk) => !isGlossaryChunk(chunk.text));
-  const removedGlossaryChunks = chunks.length - glossaryFiltered.length;
-  chunks = glossaryFiltered;
+  const filtered = chunks.filter((chunk) => !isGlossaryChunk(chunk.text) && !isCitationChunk(chunk.text));
+  const removedCount = chunks.length - filtered.length;
+  chunks = filtered;
 
   process.stdout.write(` done. ${chunks.length} chunks found.\n`);
-  if (removedGlossaryChunks > 0) {
-    console.log(`🧹 Removed ${removedGlossaryChunks} glossary-like chunks before storage`);
+  if (removedCount > 0) {
+    console.log(`🧹 Removed ${removedCount} glossary/citation chunks before storage`);
   }
 
   if (typeof options.fileSizeBytes === 'number' && options.fileSizeBytes > 500 * 1024) {

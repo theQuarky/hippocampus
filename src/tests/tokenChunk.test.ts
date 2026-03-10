@@ -1,5 +1,5 @@
 // src/tests/tokenChunk.test.ts
-import { tokenChunkText, countTokens } from '../tokenChunk';
+import { tokenChunkText, countTokens } from '../ingest/chunking/token';
 import { EMBED_MAX_TOKENS } from '../config';
 
 function assert(condition: boolean, message: string): void {

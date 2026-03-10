@@ -1,5 +1,5 @@
-// src/contextBuilder.ts — Build a structured context package from retrieved candidates
-import { MAX_CONTEXT_TOKENS } from './config';
+// src/answer/context.ts — Build a structured context package from retrieved candidates
+import { MAX_CONTEXT_TOKENS } from '../config';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -19,9 +19,9 @@ export interface RetrievedConcept {
 
 export interface ContextPackage {
   contextText: string;
-  sources: string[];
   chunkIds: string[];
   conceptLabels: string[];
+  sources: string[];
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -121,9 +121,9 @@ export function buildContext(
 
   return {
     contextText,
-    sources: [...usedSources],
     chunkIds: usedChunkIds,
     conceptLabels,
+    sources: [...usedSources],
   };
 }
 

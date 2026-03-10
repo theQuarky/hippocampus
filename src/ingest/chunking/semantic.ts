@@ -1,4 +1,4 @@
-// src/semanticChunk.ts
+// src/ingest/chunking/semantic.ts
 // Strategy: headers first → paragraph/sentence split for oversized sections → merge tiny chunks
 import { splitSentences } from './segment';
 

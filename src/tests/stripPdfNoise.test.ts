@@ -1,5 +1,5 @@
 // src/tests/stripPdfNoise.test.ts
-import { stripPdfNoise } from '../parser';
+import { stripPdfNoise } from '../ingest/parser';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {

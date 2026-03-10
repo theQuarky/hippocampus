@@ -5,7 +5,7 @@
     "main": "dist/index.js",
     "scripts": {
         "build": "tsc",
-        "server": "node dist/server.js",
+        "server": "node dist/server/index.js",
         "docker:up": "docker compose up -d --build",
         "docker:down": "docker compose down",
         "docker:logs": "docker compose logs -f hippocampus",
@@ -19,7 +19,7 @@
         "consolidate": "ts-node src/index.ts consolidate",
         "concepts": "ts-node src/index.ts concepts",
         "dev": "ts-node src/index.ts",
-        "server:dev": "ts-node src/server.ts",
+        "server:dev": "ts-node src/server/index.ts",
         "dashboard": "cd dashboard && npm run dev",
         "test": "ts-node src/test.ts",
         "benchmark": "ts-node src/index.ts benchmark",

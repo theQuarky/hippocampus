@@ -1,4 +1,4 @@
-import { EMBED_MODEL, EMBED_MAX_TOKENS } from './config';
+import { EMBED_MODEL, EMBED_MAX_TOKENS } from '../config';
 
 let embeddingPipeline: any = null;
 
@@ -8,18 +8,18 @@ async function getEmbeddingPipeline() {
       const transformers = await import('@huggingface/transformers' as any);
       embeddingPipeline = await transformers.pipeline(
         'feature-extraction',
-        'Xenova/all-MiniLM-L6-v2',
+        EMBED_MODEL,
         { device: 'cuda', dtype: 'fp16' }
       );
-      console.log('🔥 Embedding model loaded on GPU');
+      console.log(`🔥 Embedding model loaded on GPU (${EMBED_MODEL})`);
     } catch {
       // Fallback to CPU with @xenova/transformers
       const { pipeline } = await import('@xenova/transformers');
       embeddingPipeline = await pipeline(
         'feature-extraction',
-        'Xenova/all-MiniLM-L6-v2'
+        EMBED_MODEL
       );
-      console.log('💻 Embedding model loaded on CPU');
+      console.log(`💻 Embedding model loaded on CPU (${EMBED_MODEL})`);
     }
   }
   return embeddingPipeline;

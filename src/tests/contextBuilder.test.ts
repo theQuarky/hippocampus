@@ -1,5 +1,5 @@
 // src/tests/contextBuilder.test.ts
-import { buildContext, RetrievedChunk, RetrievedConcept } from '../contextBuilder';
+import { buildContext, RetrievedChunk, RetrievedConcept } from '../answer/context';
 import { MAX_CONTEXT_TOKENS } from '../config';
 
 function assert(condition: boolean, message: string): void {

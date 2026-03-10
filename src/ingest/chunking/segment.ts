@@ -1,4 +1,4 @@
-// src/segment.ts
+// src/ingest/chunking/segment.ts
 export function splitSentences(text: string): string[] {
   const seg = new Intl.Segmenter('en', { granularity: 'sentence' });
   const out: string[] = [];

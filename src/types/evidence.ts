@@ -21,8 +21,3 @@ export type EvidenceBundle = {
   concepts: EvidenceConcept[];
 };
 
-export type GroundedAnswerResult = {
-  answer: string;
-  evidence_used: EvidenceChunk[];
-  concepts_used: string[];
-};

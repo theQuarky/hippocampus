@@ -2,7 +2,7 @@
 // Override any value via environment variables.
 
 // ── Embedding model ─────────────────────────────────────────────────────────
-export const EMBED_MODEL = process.env.EMBED_MODEL ?? 'nomic-ai/nomic-embed-text-v1';
+export const EMBED_MODEL = process.env.EMBED_MODEL ?? 'Xenova/all-MiniLM-L6-v2';
 export const EMBED_DIMS = Number(process.env.EMBED_DIMS ?? '384');
 export const EMBED_MAX_TOKENS = Number(process.env.EMBED_MAX_TOKENS ?? '512');
 export const EMBED_BATCH_SIZE = Number(process.env.EMBED_BATCH_SIZE ?? '8');

@@ -1,12 +1,14 @@
 // src/index.ts
 import { initDB, db } from './db';
 import { ingest, ingestText } from './ingest';
-import { retrieve, retrieveConcepts } from './retrieve';
+import { retrieve, retrieveConcepts, retrieveByVector, expandWithConcepts, mergeChunks, rankChunks } from './retrieve';
+import type { Result } from './retrieve';
 import { consolidateAll, abstractConcepts } from './consolidate';
-import { syncConceptEmbeddings } from './conceptSync';
-import { parseUrl } from './parser';
+import { syncConceptEmbeddings } from './concepts/sync';
+import { parseUrl } from './ingest/parser';
 import { runBenchmark } from './benchmark';
-import { buildContext } from './contextBuilder';
+import { embed } from './embed';
+import { buildContext } from './answer/context';
 import { generateGroundedAnswer } from './answer';
 import { ENABLE_GROUNDED_ANSWERS, CONTEXT_TOP_K, INCLUDE_CONCEPTS, DEBUG_PERF } from './config';
 import type { EvidenceBundle, EvidenceChunk } from './types/evidence';
@@ -142,6 +144,103 @@ function startWatch(folder: string): void {
   });
 }
 
+// ── Exported query-answer pipeline ──────────────────────────────────────────
+
+export interface QueryAnswerResult {
+  answer: string;
+  evidence: EvidenceChunk[];
+  concepts_used: string[];
+  sources: string[];
+}
+
+/**
+ * Full Hippocampus query-answer pipeline:
+ *
+ *  1. Embed the question
+ *  2. Retrieve top-k chunks from Qdrant via vector search
+ *  3. Retrieve related concepts
+ *  4. Expand retrieval using concept graph (member chunks)
+ *  5. Merge and deduplicate chunks (by chunk_id, keep highest score)
+ *  6. Rank chunks by similarity (concept-layer boost applied)
+ *  7. Build structured context (token-budgeted)
+ *  8. Generate final answer using LLM
+ */
+export async function queryAnswer(question: string): Promise<QueryAnswerResult> {
+  const t0 = DEBUG_PERF ? Date.now() : 0;
+
+  // Step 1: Embed the question (single embedding call, reused everywhere)
+  const embedding = await embed(question);
+  if (DEBUG_PERF) console.log(`[PERF] embed: ${Date.now() - t0}ms`);
+
+  // Step 2: Retrieve top-k chunks from Qdrant via vector search
+  const tRetrieve = Date.now();
+  const retrieved = await retrieveByVector(embedding, CONTEXT_TOP_K);
+  if (DEBUG_PERF) console.log(`[PERF] retrieveByVector: ${Date.now() - tRetrieve}ms (${retrieved.length} chunks)`);
+
+  // Step 3 & 4: Retrieve concepts and expand retrieval with concept neighbours
+  let expandedChunks: Result[] = [];
+  let concepts: Awaited<ReturnType<typeof retrieveConcepts>> = [];
+
+  if (INCLUDE_CONCEPTS) {
+    const tConcepts = Date.now();
+    concepts = await retrieveConcepts(question);
+    expandedChunks = await expandWithConcepts(embedding, 20);
+    if (DEBUG_PERF) console.log(`[PERF] concept expansion: ${Date.now() - tConcepts}ms (${concepts.length} concepts, ${expandedChunks.length} expanded chunks)`);
+  }
+
+  // Step 5: Merge and deduplicate chunks
+  const merged = mergeChunks(retrieved, expandedChunks);
+
+  // Step 6: Rank by similarity (with concept boost)
+  const ranked = rankChunks(merged);
+
+  // Step 7: Build evidence bundle
+  const evidenceChunks: EvidenceChunk[] = ranked.map(c => ({
+    chunk_id: c.chunk_id,
+    text: typeof c.text === 'string' ? c.text : '',
+    source: typeof c.source === 'string' ? c.source : '',
+    score: typeof c.score === 'number' ? c.score : 0,
+    retrieval_layer: c.retrieval_layer ?? 'vector',
+  }));
+
+  const evidenceBundle: EvidenceBundle = {
+    chunks: evidenceChunks,
+    concepts: concepts.map(c => ({
+      concept_id: typeof c.concept_id === 'string' ? c.concept_id : '',
+      label: typeof c.label === 'string' ? c.label : '',
+      confidence: typeof c.confidence === 'number' ? c.confidence : 0,
+    })),
+  };
+
+  // Step 8: Build structured context
+  const tContext = Date.now();
+  const contextPackage = buildContext(
+    question,
+    ranked.map(c => ({
+      chunk_id: c.chunk_id,
+      text: typeof c.text === 'string' ? c.text : '',
+      source: typeof c.source === 'string' ? c.source : '',
+      score: typeof c.score === 'number' ? c.score : 0,
+    })),
+    concepts.length > 0 ? concepts : undefined,
+  );
+  if (DEBUG_PERF) console.log(`[PERF] context_build: ${Date.now() - tContext}ms`);
+
+  // Step 9: Generate final answer using LLM
+  const tAnswer = Date.now();
+  const result = await generateGroundedAnswer(question, contextPackage, evidenceBundle);
+  if (DEBUG_PERF) console.log(`[PERF] answer_generation: ${Date.now() - tAnswer}ms`);
+
+  if (DEBUG_PERF) console.log(`[PERF] queryAnswer total: ${Date.now() - t0}ms`);
+
+  return {
+    answer: result.answer,
+    evidence: evidenceChunks.slice(0, 5),
+    concepts_used: result.concepts_used,
+    sources: result.sources,
+  };
+}
+
 async function main() {
   await initDB();
 
@@ -234,69 +333,20 @@ async function main() {
       }
 
       try {
-        // Step 1: Retrieve chunks
-        const t0 = Date.now();
-        const chunks = await retrieve(argument, CONTEXT_TOP_K);
-        const retrievalMs = Date.now() - t0;
-        if (DEBUG_PERF) console.log(`[PERF] retrieval: ${retrievalMs}ms`);
+        const result = await queryAnswer(argument);
 
-        // Step 2: Retrieve concepts (if enabled)
-        const concepts = INCLUDE_CONCEPTS ? await retrieveConcepts(argument) : undefined;
-
-        // Step 3: Build evidence bundle
-        const tEvidence = Date.now();
-        const evidenceChunks: EvidenceChunk[] = chunks.map(c => ({
-          chunk_id: c.chunk_id,
-          text: typeof c.text === 'string' ? c.text : '',
-          source: typeof c.source === 'string' ? c.source : '',
-          score: typeof c.score === 'number' ? c.score : 0,
-          retrieval_layer: c.retrieval_layer ?? 'vector',
-        }));
-
-        const evidenceBundle: EvidenceBundle = {
-          chunks: evidenceChunks,
-          concepts: (concepts ?? []).map(c => ({
-            concept_id: typeof c.concept_id === 'string' ? c.concept_id : '',
-            label: typeof c.label === 'string' ? c.label : '',
-            confidence: typeof c.confidence === 'number' ? c.confidence : 0,
-          })),
-        };
-        const evidenceScoringMs = Date.now() - tEvidence;
-        if (DEBUG_PERF) console.log(`[PERF] evidence_scoring: ${evidenceScoringMs}ms`);
-
-        // Step 4: Build context
-        const t1 = Date.now();
-        const contextPackage = buildContext(
-          argument,
-          chunks.map(c => ({
-            chunk_id: c.chunk_id,
-            text: typeof c.text === 'string' ? c.text : '',
-            source: typeof c.source === 'string' ? c.source : '',
-            score: typeof c.score === 'number' ? c.score : 0,
-          })),
-          concepts,
-        );
-        const contextBuildMs = Date.now() - t1;
-        if (DEBUG_PERF) console.log(`[PERF] context_build: ${contextBuildMs}ms`);
-
-        // Step 5: Generate answer (perf logged inside answer.ts)
-        const tAnswer = Date.now();
-        const result = await generateGroundedAnswer(argument, contextPackage, evidenceBundle);
-        const answerMs = Date.now() - tAnswer;
-        if (DEBUG_PERF) console.log(`[PERF] answer_generation: ${answerMs}ms`);
-
-        // Step 6: Print answer
+        // Print answer
         console.log(`\nAnswer:\n${result.answer}\n`);
 
-        // Step 7: Print concepts used
+        // Print concepts used
         if (result.concepts_used.length > 0) {
           console.log('Concepts Used:');
           result.concepts_used.forEach(c => console.log(`  * ${c}`));
           console.log();
         }
 
-        // Step 8: Print evidence chunks (top 5)
-        const topEvidence = result.evidence_used.slice(0, 5);
+        // Print evidence chunks (top 5)
+        const topEvidence = result.evidence.slice(0, 5);
         if (topEvidence.length > 0) {
           console.log('Evidence Chunks:');
           topEvidence.forEach((ev, i) => {
@@ -307,7 +357,7 @@ async function main() {
           });
         }
 
-        // Step 9: Contradiction detection (Phase 5)
+        // Contradiction detection (Phase 5)
         if (topEvidence.length >= 2) {
           try {
             const usedIds = topEvidence.map(e => e.chunk_id);
@@ -332,7 +382,7 @@ async function main() {
           }
         }
       } catch (error) {
-        // Phase 7: Safety — never crash query-answer
+        // Safety — never crash query-answer
         const msg = error instanceof Error ? error.message : String(error);
         console.error(`❌ query-answer failed: ${msg}`);
         console.log('\nAnswer:\nAnswer generation failed — please check that Ollama and Qdrant are running.\n');
@@ -402,7 +452,18 @@ async function main() {
   }
 }
 
-main().catch(err => {
-  console.error('❌', err.message);
-  process.exit(1);
-});
+// Only run CLI when index.ts is the direct entry point
+const isDirectEntry = require.main === module ||
+  (process.argv[1] && (
+    process.argv[1].endsWith('/index.ts') ||
+    process.argv[1].endsWith('/index.js') ||
+    process.argv[1].endsWith('\\index.ts') ||
+    process.argv[1].endsWith('\\index.js')
+  ));
+
+if (isDirectEntry) {
+  main().catch(err => {
+    console.error('❌', err.message);
+    process.exit(1);
+  });
+}

@@ -1,4 +1,4 @@
-// src/parser.ts
+// src/ingest/parser.ts
 import fs from 'fs';
 import path from 'path';
 import pdfParse from 'pdf-parse';

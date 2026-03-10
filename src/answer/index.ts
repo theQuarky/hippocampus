@@ -1,16 +1,14 @@
-// src/answer.ts — Grounded answer generation via local LLM
+// src/answer/index.ts — Grounded answer generation via local LLM
 import ollama from 'ollama';
-import { ANSWER_MODEL, DEBUG_PERF } from './config';
-import type { ContextPackage } from './contextBuilder';
-import type { EvidenceBundle, EvidenceChunk } from './types/evidence';
+import { ANSWER_MODEL, DEBUG_PERF } from '../config';
+import type { ContextPackage } from './context';
+import type { EvidenceBundle, EvidenceChunk } from '../types/evidence';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface GroundedAnswer {
   answer: string;
   sources: string[];
-  usedChunks: string[];
-  usedConcepts: string[];
   evidence_used: EvidenceChunk[];
   concepts_used: string[];
 }
@@ -46,8 +44,6 @@ export async function generateGroundedAnswer(
     return {
       answer: 'The available memory does not contain enough information.',
       sources: [],
-      usedChunks: [],
-      usedConcepts: [],
       evidence_used: [],
       concepts_used: [],
     };
@@ -90,8 +86,6 @@ export async function generateGroundedAnswer(
   return {
     answer: answerText,
     sources: contextPackage.sources,
-    usedChunks: contextPackage.chunkIds,
-    usedConcepts: contextPackage.conceptLabels,
     evidence_used: evidenceUsed,
     concepts_used: conceptsUsed,
   };

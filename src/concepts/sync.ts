@@ -1,9 +1,9 @@
-// src/conceptSync.ts — Syncs concept embeddings into a dedicated Qdrant collection.
+// src/concepts/sync.ts — Syncs concept embeddings into a dedicated Qdrant collection.
 // Only re-embeds concepts whose `version` has changed since last sync.
 
-import { db, qdrant, CONCEPT_COLLECTION } from './db';
-import { embedBatch } from './embed';
-import { EMBED_BATCH_SIZE, DEBUG_PERF } from './config';
+import { db, qdrant, CONCEPT_COLLECTION } from '../db';
+import { embedBatch } from '../embed';
+import { EMBED_BATCH_SIZE, DEBUG_PERF } from '../config';
 
 interface ConceptRow {
   concept_id: string;

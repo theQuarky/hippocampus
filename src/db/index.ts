@@ -1,8 +1,8 @@
-// src/db.ts
+// src/db/index.ts
 import { QdrantClient } from '@qdrant/js-client-rest';
 import Database from 'better-sqlite3';
 import path from 'path';
-import { EMBED_DIMS, QDRANT_URL, QDRANT_COLLECTION } from './config';
+import { EMBED_DIMS, QDRANT_URL, QDRANT_COLLECTION } from '../config';
 
 const COLLECTION = QDRANT_COLLECTION;
 const CONCEPT_COLLECTION = `${QDRANT_COLLECTION}_concepts`;
