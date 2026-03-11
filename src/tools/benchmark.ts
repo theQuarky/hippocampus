@@ -1,6 +1,6 @@
-// src/benchmark.ts — Fixed-query benchmark for regression detection
-import { retrieve, Result } from './retrieve';
-import { db } from './db';
+// src/tools/benchmark.ts — Fixed-query benchmark for regression detection
+import { retrieve, Result } from '../retrieve';
+import { db } from '../db';
 import fs from 'fs';
 import path from 'path';
 

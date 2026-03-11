@@ -29,8 +29,11 @@ export const CONCEPT_MIN_SCORE = Number(process.env.CONCEPT_MIN_SCORE ?? '0.45')
 // ── Grounded answer pipeline ────────────────────────────────────────────────
 export const ENABLE_GROUNDED_ANSWERS = process.env.ENABLE_GROUNDED_ANSWERS !== 'false'; // on by default
 export const ANSWER_MODEL = process.env.ANSWER_MODEL ?? process.env.OLLAMA_MODEL ?? 'phi3:mini';
-export const MAX_CONTEXT_TOKENS = Number(process.env.MAX_CONTEXT_TOKENS ?? '3000');
-export const CONTEXT_TOP_K = Number(process.env.CONTEXT_TOP_K ?? '12');
+export const MAX_CONTEXT_TOKENS = Number(process.env.MAX_CONTEXT_TOKENS ?? '500');
+export const CONTEXT_TOP_K = Number(process.env.CONTEXT_TOP_K ?? '3');
+export const MAX_EVIDENCE_CHUNKS = Number(process.env.MAX_EVIDENCE_CHUNKS ?? '5');
+export const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS ?? '128');
+export const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? '120000');
 
 // ── Consolidation tuning ───────────────────────────────────────────────────
 export const CONSOLIDATION_BATCH_SIZE = Number(process.env.CONSOLIDATION_BATCH_SIZE ?? '10');

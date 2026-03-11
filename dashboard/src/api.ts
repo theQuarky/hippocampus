@@ -115,6 +115,21 @@ export type RecentIngest = {
   timestamp: string;
 };
 
+export type DatabaseListResponse = {
+  databases: string[];
+};
+
+let activeDatabase = 'default';
+
+export function getActiveDatabase(): string {
+  return activeDatabase;
+}
+
+export function setActiveDatabase(name: string): void {
+  const trimmed = name.trim();
+  activeDatabase = trimmed || 'default';
+}
+
 type ApiError = {
   error?: string;
 };
@@ -146,7 +161,10 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 export async function getStats(): Promise<StatsResponse> {
-  return request<StatsResponse>('/api/stats');
+  const params = new URLSearchParams();
+  if (activeDatabase) params.set('database', activeDatabase);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  return request<StatsResponse>(`/api/stats${suffix}`);
 }
 
 export type GetChunksParams = {
@@ -158,6 +176,7 @@ export type GetChunksParams = {
 
 export async function getChunks(params: GetChunksParams = {}): Promise<Chunk[]> {
   const query = new URLSearchParams();
+  if (activeDatabase) query.set('database', activeDatabase);
   if (params.source) query.set('source', params.source);
   if (params.search) query.set('search', params.search);
   if (typeof params.limit === 'number') query.set('limit', String(params.limit));
@@ -168,17 +187,28 @@ export async function getChunks(params: GetChunksParams = {}): Promise<Chunk[]> 
 }
 
 export async function getGraph(): Promise<GraphResponse> {
-  return request<GraphResponse>('/api/graph');
+  const params = new URLSearchParams();
+  if (activeDatabase) params.set('database', activeDatabase);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  return request<GraphResponse>(`/api/graph${suffix}`);
 }
 
 export async function getConcepts(): Promise<Concept[]> {
-  return request<Concept[]>('/api/concepts');
+  const params = new URLSearchParams();
+  if (activeDatabase) params.set('database', activeDatabase);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  return request<Concept[]>(`/api/concepts${suffix}`);
 }
 
 export async function postQuery(payload: { query: string; top_k?: number }): Promise<QueryResult[]> {
+  const body = {
+    ...payload,
+    ...(activeDatabase ? { database: activeDatabase } : {}),
+  };
+
   return request<QueryResult[]>('/api/query', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
 }
 
@@ -207,8 +237,11 @@ export async function ingestFile(file: File, tags: string[]): Promise<IngestJobR
   if (tags.length > 0) {
     form.append('tags', tags.join(','));
   }
+  const params = new URLSearchParams();
+  if (activeDatabase) params.set('database', activeDatabase);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
 
-  const response = await fetch('/api/ingest/file', {
+  const response = await fetch(`/api/ingest/file${suffix}`, {
     method: 'POST',
     body: form,
   });
@@ -217,12 +250,15 @@ export async function ingestFile(file: File, tags: string[]): Promise<IngestJobR
 }
 
 export async function ingestUrl(url: string, tags: string[]): Promise<IngestJobResponse> {
+  const body: { url: string; tags: string[]; database?: string } = { url, tags };
+  if (activeDatabase) body.database = activeDatabase;
+
   const response = await fetch('/api/ingest/url', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ url, tags }),
+    body: JSON.stringify(body),
   });
 
   return parseIngestResponse(response);
@@ -231,5 +267,25 @@ export async function ingestUrl(url: string, tags: string[]): Promise<IngestJobR
 export async function getRecentIngests(limit: number = 5): Promise<RecentIngest[]> {
   const query = new URLSearchParams();
   query.set('limit', String(limit));
+  if (activeDatabase) query.set('database', activeDatabase);
   return request<RecentIngest[]>(`/api/ingests/recent?${query.toString()}`);
+}
+
+export async function getDatabases(): Promise<string[]> {
+  const response = await request<DatabaseListResponse>('/api/db/list');
+  return response.databases;
+}
+
+export async function createDatabase(name: string, description?: string): Promise<void> {
+  await request<unknown>('/api/db/create', {
+    method: 'POST',
+    body: JSON.stringify({ name, description }),
+  });
+}
+
+export async function deleteDatabase(name: string): Promise<void> {
+  await request<unknown>('/api/db/delete', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
 }

@@ -2,9 +2,9 @@
 import path from 'path';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
-import { initDB } from '../db';
+import { initDB, ensureDefaultMemoryDatabase } from '../db';
 import { runConsolidationWorker } from '../consolidate';
-import { startHttpServer } from './http';
+import { startHttpServer } from './httpServer';
 import { ingestHandler, queryHandler, healthHandler } from './grpc';
 import { HOST, DEFAULT_PORT } from './helpers';
 
@@ -12,6 +12,7 @@ const PROTO_PATH = path.join(__dirname, '..', 'proto', 'hippocampus.proto');
 
 async function startServer() {
   await initDB();
+  ensureDefaultMemoryDatabase();
   runConsolidationWorker(30000);
   startHttpServer();
 

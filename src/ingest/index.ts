@@ -6,9 +6,13 @@ import { parseFile } from './parser';
 import { semanticChunkText, Chunk } from './chunking/semantic';
 import { tokenChunkText } from './chunking/token';
 import { llmChunkText } from './chunking/llm';
-import { db, qdrant, COLLECTION } from '../db';
+import { db, qdrant, COLLECTION, DEFAULT_MEMORY_DB } from '../db';
 import { ProgressBar } from '../progress';
 import { isCitationChunk, isGlossaryChunk } from './filters';
+
+// Re-export for module boundary consumers
+export { semanticChunkText } from './chunking/semantic';
+export type { Chunk } from './chunking/semantic';
 
 /*
 Example terminal output:
@@ -96,10 +100,18 @@ function rateForStage(chunks: number, milliseconds: number): string {
   return ((chunks * 1000) / milliseconds).toFixed(1);
 }
 
-async function searchSimilar(vector: number[]): Promise<{ topScore: number; similarIds: string[]; scoreMap: Map<string, number> }> {
+async function searchSimilar(vector: number[], database: string): Promise<{ topScore: number; similarIds: string[]; scoreMap: Map<string, number> }> {
   try {
     const results = await qdrant.search(COLLECTION, {
-      vector, limit: 6, with_payload: true, with_vector: false,
+      vector,
+      limit: 6,
+      with_payload: true,
+      with_vector: false,
+      filter: {
+        must: [
+          { key: 'database_id', match: { value: database } },
+        ],
+      },
     }) as SimilarChunkHit[];
 
     const scoreMap = new Map<string, number>();
@@ -121,10 +133,11 @@ async function searchSimilar(vector: number[]): Promise<{ topScore: number; simi
 function seedConnectionsBatch(
   entries: { sourceId: string; targetIds: string[]; scoreMap?: Map<string, number> }[],
   timestamp: string,
+  database: string,
 ): number {
   const insertStmt = db.prepare(`
-    INSERT OR IGNORE INTO connections (edge_id, source_chunk, target_chunk, relationship, weight, confidence, created_at, last_reinforced, avg_sim, seen_count, last_seen)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO connections (edge_id, source_chunk, target_chunk, relationship, weight, confidence, created_at, last_reinforced, avg_sim, seen_count, last_seen, database_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertAll = db.transaction((items: { sourceId: string; targetIds: string[]; scoreMap?: Map<string, number> }[]) => {
@@ -133,7 +146,7 @@ function seedConnectionsBatch(
       for (const targetId of targetIds) {
         if (targetId === sourceId) continue;
         const sim = scoreMap?.get(targetId) ?? 0;
-        const result = insertStmt.run(uuidv4(), sourceId, targetId, 'related_to', 0.3, 0.5, timestamp, null, sim, 1, timestamp);
+        const result = insertStmt.run(uuidv4(), sourceId, targetId, 'related_to', 0.3, 0.5, timestamp, null, sim, 1, timestamp, database);
         total += result.changes;
       }
     }
@@ -172,7 +185,8 @@ export async function ingest(
   filePath: string,
   tags: string[] = [],
   sourceOverride?: string,
-  onProgress?: (event: ProgressEvent) => void
+  onProgress?: (event: ProgressEvent) => void,
+  database: string = DEFAULT_MEMORY_DB,
 ): Promise<IngestResult> {
   const text = await parseFile(filePath);
 
@@ -183,14 +197,15 @@ export async function ingest(
     fileSizeBytes = undefined;
   }
 
-  return ingestText(sourceOverride ?? filePath, text, tags, { fileSizeBytes, onProgress });
+  return ingestText(sourceOverride ?? filePath, text, tags, { fileSizeBytes, onProgress }, database);
 }
 
 export async function ingestText(
   sourceLabel: string,
   text: string,
   tags: string[] = [],
-  options: IngestTextOptions = {}
+  options: IngestTextOptions = {},
+  database: string = DEFAULT_MEMORY_DB,
 ): Promise<IngestResult> {
   const wallStartedMs = Date.now();
   const debugPerf = process.env.DEBUG_PERF === 'true';
@@ -257,6 +272,7 @@ export async function ingestText(
   }
 
   const source = resolveSource(sourceLabel);
+  const databaseName = database || DEFAULT_MEMORY_DB;
   const concurrency = options.concurrency ?? resolveConcurrency();
   const onProgress = options.onProgress;
   const sizeSuffix = typeof options.fileSizeBytes === 'number' ? ` (${formatMegabytes(options.fileSizeBytes)})` : '';
@@ -371,8 +387,8 @@ export async function ingestText(
     console.log(`\n✅ Done in 0s — stored 0 chunks, skipped 0 duplicates, seeded 0 connections\n`);
 
     db.prepare(`
-      INSERT INTO ingest_events (event_id, source, chunks_stored, chunks_skipped, connections_seeded, tags, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO ingest_events (event_id, source, chunks_stored, chunks_skipped, connections_seeded, tags, timestamp, database_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       uuidv4(),
       source,
@@ -381,6 +397,7 @@ export async function ingestText(
       0,
       JSON.stringify(tags),
       ingestTimestamp,
+      databaseName,
     );
 
     onProgress?.({
@@ -402,12 +419,12 @@ export async function ingestText(
 
   const progress = new ProgressBar({ total: chunks.length, fallbackEvery: 50, minColumns: 60 });
   const insertChunkStmt = db.prepare(`
-    INSERT INTO chunks (chunk_id, text, source, page, timestamp, tags)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO chunks (chunk_id, text, source, page, timestamp, tags, database_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   const batchInsertChunks = db.transaction((items: { chunkId: string; text: string; source: string; page: number; timestamp: string; tagsJson: string }[]) => {
     for (const item of items) {
-      insertChunkStmt.run(item.chunkId, item.text, item.source, item.page, item.timestamp, item.tagsJson);
+      insertChunkStmt.run(item.chunkId, item.text, item.source, item.page, item.timestamp, item.tagsJson, databaseName);
     }
   });
 
@@ -438,7 +455,7 @@ export async function ingestText(
       const searchStart = Date.now();
       const searchResults = skipSearch
         ? batch.map(() => ({ topScore: 0, similarIds: [] as string[], scoreMap: new Map<string, number>() }))
-        : await Promise.all(vectors.map(v => searchSimilar(v)));
+        : await Promise.all(vectors.map(v => searchSimilar(v, databaseName)));
       const searchMs = skipSearch ? 0 : (Date.now() - searchStart);
       perfTotals.qdrantSearchMs += searchMs;
       perfCounts.qdrantSearchChunks += skipSearch ? 0 : batch.length;
@@ -477,7 +494,7 @@ export async function ingestText(
           points: toStore.map(c => ({
             id: c.chunkId,
             vector: c.vector,
-            payload: { text: c.chunk.text, source, chunk_id: c.chunkId },
+            payload: { text: c.chunk.text, source, chunk_id: c.chunkId, database_id: databaseName },
           })),
         });
         upsertMs = Date.now() - upsertStart;
@@ -514,7 +531,7 @@ export async function ingestText(
       if (!deferGraphBuild) {
         const seedStart = Date.now();
         const entries = toStore.map(c => ({ sourceId: c.chunkId, targetIds: c.similarIds, scoreMap: c.scoreMap }));
-        const conns = seedConnectionsBatch(entries, ingestTimestamp);
+        const conns = seedConnectionsBatch(entries, ingestTimestamp, databaseName);
         seededConnections += conns;
         seedingMs = Date.now() - seedStart;
         perfTotals.connectionSeedingMs += seedingMs;
@@ -540,7 +557,7 @@ export async function ingestText(
         const seedBatch = deferredSeeds.slice(i, i + BATCH_SIZE);
 
         const deferredSearchStart = Date.now();
-        const searchResults = await Promise.all(seedBatch.map(s => searchSimilar(s.vector)));
+        const searchResults = await Promise.all(seedBatch.map(s => searchSimilar(s.vector, databaseName)));
         const deferredSearchMs = Date.now() - deferredSearchStart;
         perfTotals.qdrantSearchMs += deferredSearchMs;
         perfCounts.qdrantSearchChunks += seedBatch.length;
@@ -551,7 +568,7 @@ export async function ingestText(
           targetIds: searchResults[j].similarIds,
           scoreMap: searchResults[j].scoreMap,
         }));
-        const conns = seedConnectionsBatch(entries, ingestTimestamp);
+        const conns = seedConnectionsBatch(entries, ingestTimestamp, databaseName);
         seededConnections += conns;
         const seedingMs = Date.now() - seedStart;
         perfTotals.connectionSeedingMs += seedingMs;
@@ -655,8 +672,8 @@ export async function ingestText(
   });
 
   db.prepare(`
-    INSERT INTO ingest_events (event_id, source, chunks_stored, chunks_skipped, connections_seeded, tags, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO ingest_events (event_id, source, chunks_stored, chunks_skipped, connections_seeded, tags, timestamp, database_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     uuidv4(),
     source,
@@ -665,6 +682,7 @@ export async function ingestText(
     seededConnections,
     JSON.stringify(tags),
     ingestTimestamp,
+    databaseName,
   );
 
   return {

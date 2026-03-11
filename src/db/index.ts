@@ -58,6 +58,14 @@ export function addColumnIfMissing(table: string, definition: string) {
 
 export function initSQLite() {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_databases (
+      id           TEXT PRIMARY KEY,
+      name         TEXT UNIQUE NOT NULL,
+      created_at   INTEGER,
+      description  TEXT,
+      config_json  TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS chunks (
       chunk_id    TEXT PRIMARY KEY,
       text        TEXT NOT NULL,
@@ -108,6 +116,11 @@ export function initSQLite() {
 
   addColumnIfMissing('chunks', 'is_duplicate INTEGER DEFAULT 0');
   addColumnIfMissing('chunks', 'contradiction_flag INTEGER DEFAULT 0');
+  // Multi-database support
+  addColumnIfMissing('chunks', 'database_id TEXT DEFAULT "default"');
+  addColumnIfMissing('connections', 'database_id TEXT DEFAULT "default"');
+  addColumnIfMissing('concepts', 'database_id TEXT DEFAULT "default"');
+  addColumnIfMissing('ingest_events', 'database_id TEXT DEFAULT "default"');
   addColumnIfMissing('connections', 'last_reinforced TEXT');
 
   // PHASE 4 — learning weight columns on connections
@@ -157,4 +170,25 @@ export async function initDB() {
   await initQdrant();
   await initConceptQdrant();
   initSQLite();
+}
+
+// ── Memory database helpers ───────────────────────────────────────────────
+
+export const DEFAULT_MEMORY_DB = 'default';
+
+export function ensureDefaultMemoryDatabase(): void {
+  const row = db.prepare('SELECT id, name FROM memory_databases WHERE name = ? LIMIT 1').get(DEFAULT_MEMORY_DB) as { id: string; name: string } | undefined;
+  if (row) return;
+
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare(`
+    INSERT OR IGNORE INTO memory_databases (id, name, created_at, description, config_json)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(`db_${DEFAULT_MEMORY_DB}`, DEFAULT_MEMORY_DB, now, 'Default memory database', '{}');
+
+  // Backfill any existing rows that do not have a database_id
+  db.prepare("UPDATE chunks SET database_id = ? WHERE database_id IS NULL OR database_id = ''").run(DEFAULT_MEMORY_DB);
+  db.prepare("UPDATE connections SET database_id = ? WHERE database_id IS NULL OR database_id = ''").run(DEFAULT_MEMORY_DB);
+  db.prepare("UPDATE concepts SET database_id = ? WHERE database_id IS NULL OR database_id = ''").run(DEFAULT_MEMORY_DB);
+  db.prepare("UPDATE ingest_events SET database_id = ? WHERE database_id IS NULL OR database_id = ''").run(DEFAULT_MEMORY_DB);
 }

@@ -1,6 +1,6 @@
 // src/retrieve/index.ts
 import { embed } from '../embed';
-import { db, qdrant, COLLECTION, CONCEPT_COLLECTION } from '../db';
+import { db, qdrant, COLLECTION, CONCEPT_COLLECTION, DEFAULT_MEMORY_DB } from '../db';
 import { INCLUDE_CONCEPTS, DEBUG_PERF, CONCEPT_BOOST, CONCEPT_TOP_K, CONCEPT_MIN_SCORE } from '../config';
 import type { RetrievalLayer } from '../types/evidence';
 
@@ -32,12 +32,18 @@ export interface Result {
   retrieval_layer: RetrievalLayer;
 }
 
-export async function retrieve(query: string, topK: number = 20): Promise<Result[]> {
+export async function retrieve(query: string, topK: number = 20, database: string = DEFAULT_MEMORY_DB): Promise<Result[]> {
+  const dbName = database || DEFAULT_MEMORY_DB;
   const vector = await embed(query);
   const hits = await qdrant.search(COLLECTION, {
     vector,
     limit: topK,
-    with_payload: true
+    with_payload: true,
+    filter: {
+      must: [
+        { key: 'database_id', match: { value: dbName } },
+      ],
+    },
   });
 
   if (hits.length === 0) return [];
@@ -68,21 +74,23 @@ export async function retrieve(query: string, topK: number = 20): Promise<Result
     SELECT target_chunk, weight
     FROM connections
     WHERE source_chunk = ?
+      AND database_id = ?
   `);
   const chunkStmt = db.prepare(`
     SELECT text, source
     FROM chunks
     WHERE chunk_id = ?
+      AND database_id = ?
   `);
 
   for (const vectorResult of vectorCandidates) {
-    const neighbors = connectionStmt.all(vectorResult.chunk_id) as Array<{ target_chunk: string; weight: number | null }>;
+    const neighbors = connectionStmt.all(vectorResult.chunk_id, dbName) as Array<{ target_chunk: string; weight: number | null }>;
 
     for (const neighbor of neighbors) {
       if (!neighbor?.target_chunk) continue;
       if (vectorChunkIds.has(neighbor.target_chunk)) continue;
 
-      const chunkRow = chunkStmt.get(neighbor.target_chunk) as { text: string; source: string } | undefined;
+      const chunkRow = chunkStmt.get(neighbor.target_chunk, dbName) as { text: string; source: string } | undefined;
       if (!chunkRow) continue;
 
       const boostedScore = vectorResult.score + ((neighbor.weight ?? 0) * GRAPH_BOOST_FACTOR);
@@ -187,7 +195,8 @@ export async function retrieve(query: string, topK: number = 20): Promise<Result
         SET access_count = access_count + 1,
             last_accessed = ?
         WHERE chunk_id = ?
-      `).run(new Date().toISOString(), result.chunk_id);
+          AND database_id = ?
+      `).run(new Date().toISOString(), result.chunk_id, dbName);
     }
 
     return rescored;
@@ -208,7 +217,8 @@ export async function retrieve(query: string, topK: number = 20): Promise<Result
       SET access_count = access_count + 1,
           last_accessed = ?
       WHERE chunk_id = ?
-    `).run(new Date().toISOString(), chunk_id);
+        AND database_id = ?
+    `).run(new Date().toISOString(), chunk_id, dbName);
   }
 
   return filtered;
@@ -229,11 +239,17 @@ export interface ConceptResult {
  * Vector-only search: takes a pre-computed embedding and returns top-k chunks.
  * Does NOT embed internally — the caller is responsible for embedding.
  */
-export async function retrieveByVector(embedding: number[], k: number = 10): Promise<Result[]> {
+export async function retrieveByVector(embedding: number[], k: number = 10, database: string = DEFAULT_MEMORY_DB): Promise<Result[]> {
+  const dbName = database || DEFAULT_MEMORY_DB;
   const hits = await qdrant.search(COLLECTION, {
     vector: embedding,
     limit: k,
     with_payload: true,
+    filter: {
+      must: [
+        { key: 'database_id', match: { value: dbName } },
+      ],
+    },
   });
 
   if (hits.length === 0) return [];
@@ -265,18 +281,25 @@ export async function expandWithConcepts(
   embedding: number[],
   maxChunks: number = 20,
   topK: number = CONCEPT_TOP_K,
+  database: string = DEFAULT_MEMORY_DB,
 ): Promise<Result[]> {
+  const dbName = database || DEFAULT_MEMORY_DB;
   try {
     const conceptHits = await qdrant.search(CONCEPT_COLLECTION, {
       vector: embedding,
       limit: topK,
       with_payload: true,
       score_threshold: CONCEPT_MIN_SCORE,
+      filter: {
+        must: [
+          { key: 'database_id', match: { value: dbName } },
+        ],
+      },
     });
 
     if (conceptHits.length === 0) return [];
 
-    const chunkStmt = db.prepare('SELECT text, source FROM chunks WHERE chunk_id = ?');
+    const chunkStmt = db.prepare('SELECT text, source FROM chunks WHERE chunk_id = ? AND database_id = ?');
     const results: Result[] = [];
 
     for (const hit of conceptHits) {
@@ -300,7 +323,7 @@ export async function expandWithConcepts(
       for (const memberId of memberChunks) {
         if (results.length >= maxChunks) break;
 
-        const chunkRow = chunkStmt.get(memberId) as { text: string; source: string } | undefined;
+        const chunkRow = chunkStmt.get(memberId, dbName) as { text: string; source: string } | undefined;
         if (!chunkRow) continue;
 
         const fusedScore = membershipFactor * CONCEPT_BOOST + conceptSimilarity;
@@ -361,8 +384,9 @@ export function rankChunks(chunks: Result[], conceptBoost: number = CONCEPT_BOOS
 
 // ── Concept retrieval for grounded answer pipeline ─────────────────────────
 
-export async function retrieveConcepts(query: string, topK: number = CONCEPT_TOP_K): Promise<ConceptResult[]> {
+export async function retrieveConcepts(query: string, topK: number = CONCEPT_TOP_K, database: string = DEFAULT_MEMORY_DB): Promise<ConceptResult[]> {
   const t0 = DEBUG_PERF ? Date.now() : 0;
+  const dbName = database || DEFAULT_MEMORY_DB;
 
   try {
     const vector = await embed(query);
@@ -371,6 +395,11 @@ export async function retrieveConcepts(query: string, topK: number = CONCEPT_TOP
       limit: topK,
       with_payload: true,
       score_threshold: CONCEPT_MIN_SCORE,
+      filter: {
+        must: [
+          { key: 'database_id', match: { value: dbName } },
+        ],
+      },
     });
 
     const results: ConceptResult[] = [];

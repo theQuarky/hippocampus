@@ -1,14 +1,15 @@
+// src/tests/integration.test.ts — Full integration test suite (moved from src/test.ts)
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
-import { embed } from './embed';
-import { initDB, db, qdrant, COLLECTION } from './db';
-import { parseFile } from './ingest/parser';
-import { semanticChunkText } from './ingest/chunking/semantic';
-import { ingest } from './ingest';
-import { retrieve } from './retrieve';
-import { reinforceConnections, decayConnections, abstractConcepts } from './consolidate';
+import { embed } from '../embed';
+import { initDB, db, qdrant, COLLECTION } from '../db';
+import { parseFile } from '../ingest/parser';
+import { semanticChunkText } from '../ingest/chunking/semantic';
+import { ingest } from '../ingest';
+import { retrieve } from '../retrieve';
+import { reinforceConnections, decayConnections, abstractConcepts } from '../consolidate';
 import ollama from 'ollama';
 
 function expect(condition: unknown, message: string) {
@@ -343,10 +344,6 @@ Graph traversal over evidence supports retrieval even when exact wording differs
 
   reinforceConnections();
   const reinforcedWeight = getConnectionWeight(reinforceEdgeId);
-  // With access_count=5, confidence=0.5, avg_sim=1.0:
-  // increment = 0.02 + 0.08 * min(1, 5/20) * 0.5 * 1.0 = 0.02 + 0.01 = 0.03
-  // reinforced = clamp(0.96 + 0.03, 0.05, 1.0) = 0.99
-  // Then capped at MAX_CONNECTION_WEIGHT = 1.0 by clamp
   expect(reinforcedWeight > 0.96, `reinforcement should increase weight above 0.96, got ${reinforcedWeight}`);
   expect(reinforcedWeight <= 1.0, `reinforcement should cap at 1.0, got ${reinforcedWeight}`);
 

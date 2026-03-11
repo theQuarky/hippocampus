@@ -4,7 +4,7 @@ import * as grpc from '@grpc/grpc-js';
 import { db, qdrant, COLLECTION } from '../db';
 import { embed } from '../embed';
 import { retrieve } from '../retrieve';
-import { semanticChunkText } from '../ingest/chunking/semantic';
+import { semanticChunkText } from '../ingest';
 import type {
   SimilarChunkHit, IngestRequest, IngestResponse,
   QueryRequest, QueryResponse, HealthResponse,
