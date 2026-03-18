@@ -11,6 +11,7 @@ import { queryAnswer } from '../answer/query';
 import { parseUrl } from '../ingest/parser';
 import { runBenchmark } from '../tools/benchmark';
 import { ENABLE_GROUNDED_ANSWERS } from '../config';
+import { generateAudioOverview, type OverviewFormat } from '../audio/overview';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -295,4 +296,15 @@ export async function cmdBenchmark(): Promise<void> {
 export async function cmdSyncConcepts(): Promise<void> {
   const result = await syncConceptEmbeddings();
   console.log(`✅ Concept sync complete: ${result.synced} synced, ${result.skipped} skipped`);
+}
+
+export async function cmdOverview(question: string, format: OverviewFormat = 'monologue', database?: string): Promise<void> {
+  const result = await generateAudioOverview(question, format, database ?? 'default');
+  console.log(`\nAudio overview generated:`);
+  console.log(`  File:     ${result.audio.audioPath}`);
+  console.log(`  Format:   ${result.format}`);
+  console.log(`  Duration: ${Math.round(result.audio.duration)}s`);
+  console.log(`  Words:    ${result.script.wordCount}`);
+  console.log(`  Engine:   ${result.audio.engine}`);
+  console.log(`  URL:      ${result.audioUrl}`);
 }

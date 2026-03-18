@@ -1,6 +1,8 @@
 // src/answer/generator.ts — Grounded answer generation via local LLM (with timeout)
-import ollama from 'ollama';
-import { ANSWER_MODEL, MAX_OUTPUT_TOKENS, LLM_TIMEOUT_MS } from '../config';
+import { Ollama } from 'ollama';
+import { ANSWER_MODEL, MAX_OUTPUT_TOKENS, LLM_TIMEOUT_MS, OLLAMA_URL } from '../config';
+
+const ollama = new Ollama({ host: OLLAMA_URL });
 import type { ContextPackage } from './context';
 import type { EvidenceBundle, EvidenceChunk } from '../types/evidence';
 

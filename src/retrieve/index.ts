@@ -1,11 +1,17 @@
 // src/retrieve/index.ts
+import { createHash, randomUUID } from 'crypto';
 import { embed } from '../embed';
 import { db, qdrant, COLLECTION, CONCEPT_COLLECTION, DEFAULT_MEMORY_DB } from '../db';
-import { INCLUDE_CONCEPTS, DEBUG_PERF, CONCEPT_BOOST, CONCEPT_TOP_K, CONCEPT_MIN_SCORE } from '../config';
+import { buildChunkConceptMembership, conceptScoreForChunk, predictAssociativeScores } from '../associative';
+import { INCLUDE_CONCEPTS, DEBUG_PERF, CONCEPT_BOOST, CONCEPT_TOP_K, CONCEPT_MIN_SCORE, MIN_SCORE } from '../config';
 import type { RetrievalLayer } from '../types/evidence';
 
-const GRAPH_BOOST_FACTOR = 0.05;
+const MAX_HOPS = 2;
+const HOP_DECAY = 0.9;
+const MIN_EDGE_WEIGHT = 0.3;
 const MAX_RERANK_CANDIDATES = 20;
+
+type RelationshipType = 'supports' | 'contradicts' | 'example_of' | 'caused_by' | 'related_to';
 
 /**
  * Rescale scores to spread out tightly clustered results.
@@ -30,14 +36,338 @@ export interface Result {
   chunk_id: string;
   graph_boosted: boolean;
   retrieval_layer: RetrievalLayer;
+  path: string[];
+  conflicts: string[];
+  rerankScore?: number;   // raw cross-encoder relevance (0–1); present only after re-ranking
 }
 
-export async function retrieve(query: string, topK: number = 20, database: string = DEFAULT_MEMORY_DB): Promise<Result[]> {
-  const dbName = database || DEFAULT_MEMORY_DB;
+export interface CandidateChunk {
+  chunkId: string;
+  score: number;
+  hopDepth: number;
+  path: string[];
+  vectorScore: number;
+}
+
+export interface RetrieveOptions {
+  topK?: number;
+  database?: string;
+  maxHops?: number;
+  relationshipFilter?: string[];
+  includeConflicts?: boolean;
+}
+
+type EdgeRow = {
+  target_chunk: string;
+  weight: number | null;
+  relationship: string;
+};
+
+type ChunkRow = {
+  text: string;
+  source: string;
+};
+
+const VALID_RELATIONSHIPS = new Set<RelationshipType>([
+  'supports',
+  'contradicts',
+  'example_of',
+  'caused_by',
+  'related_to',
+]);
+
+function sanitizeRelationshipFilter(filter?: string[]): RelationshipType[] | undefined {
+  if (!Array.isArray(filter) || filter.length === 0) return undefined;
+
+  const normalized = filter
+    .map(value => value.trim().toLowerCase())
+    .filter((value): value is RelationshipType => VALID_RELATIONSHIPS.has(value as RelationshipType));
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeRetrieveArgs(
+  topKOrOptions: number | RetrieveOptions | undefined,
+  databaseOrOptions?: string | RetrieveOptions,
+  options?: RetrieveOptions,
+): {
+  topK: number;
+  database: string;
+  maxHops: number;
+  includeConflicts: boolean;
+  relationshipFilter?: RelationshipType[];
+} {
+  let topK = 20;
+  let database = DEFAULT_MEMORY_DB;
+  let mergedOptions: RetrieveOptions = {};
+
+  if (typeof topKOrOptions === 'number') {
+    topK = Number.isFinite(topKOrOptions) && topKOrOptions > 0 ? Math.floor(topKOrOptions) : 20;
+  } else if (topKOrOptions && typeof topKOrOptions === 'object') {
+    mergedOptions = { ...mergedOptions, ...topKOrOptions };
+  }
+
+  if (typeof databaseOrOptions === 'string') {
+    database = databaseOrOptions || DEFAULT_MEMORY_DB;
+  } else if (databaseOrOptions && typeof databaseOrOptions === 'object') {
+    mergedOptions = { ...mergedOptions, ...databaseOrOptions };
+  }
+
+  if (options && typeof options === 'object') {
+    mergedOptions = { ...mergedOptions, ...options };
+  }
+
+  if (typeof mergedOptions.topK === 'number' && Number.isFinite(mergedOptions.topK) && mergedOptions.topK > 0) {
+    topK = Math.floor(mergedOptions.topK);
+  }
+
+  if (typeof mergedOptions.database === 'string' && mergedOptions.database.trim()) {
+    database = mergedOptions.database.trim();
+  }
+
+  const maxHops =
+    typeof mergedOptions.maxHops === 'number' && Number.isFinite(mergedOptions.maxHops)
+      ? Math.max(0, Math.floor(mergedOptions.maxHops))
+      : MAX_HOPS;
+
+  const includeConflicts = mergedOptions.includeConflicts !== false;
+  const relationshipFilter = sanitizeRelationshipFilter(mergedOptions.relationshipFilter);
+
+  return {
+    topK,
+    database,
+    maxHops,
+    includeConflicts,
+    relationshipFilter,
+  };
+}
+
+function buildConnectionQuery(filter?: RelationshipType[]): { sql: string; paramsFactory: (chunkId: string, database: string) => unknown[] } {
+  if (!filter || filter.length === 0) {
+    return {
+      sql: `
+        SELECT target_chunk, weight, relationship
+        FROM connections
+        WHERE source_chunk = ?
+          AND database_id = ?
+          AND weight > ?
+      `,
+      paramsFactory: (chunkId, database) => [chunkId, database, MIN_EDGE_WEIGHT],
+    };
+  }
+
+  const placeholders = filter.map(() => '?').join(', ');
+  return {
+    sql: `
+      SELECT target_chunk, weight, relationship
+      FROM connections
+      WHERE source_chunk = ?
+        AND database_id = ?
+        AND weight > ?
+        AND relationship IN (${placeholders})
+    `,
+    paramsFactory: (chunkId, database) => [chunkId, database, MIN_EDGE_WEIGHT, ...filter],
+  };
+}
+
+async function multiHopExpand(
+  seeds: CandidateChunk[],
+  visited: Set<string>,
+  options: {
+    database: string;
+    maxHops: number;
+    relationshipFilter?: RelationshipType[];
+  },
+): Promise<CandidateChunk[]> {
+  if (seeds.length === 0 || options.maxHops <= 0) return [...seeds];
+
+  const allCandidates = new Map<string, CandidateChunk>();
+  const queue: CandidateChunk[] = [];
+
+  for (const seed of seeds) {
+    queue.push(seed);
+    allCandidates.set(seed.chunkId, seed);
+  }
+
+  const connectionQuery = buildConnectionQuery(options.relationshipFilter);
+  const connectionStmt = db.prepare(connectionQuery.sql);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current.hopDepth >= options.maxHops) continue;
+
+    visited.add(current.chunkId);
+
+    const edges = connectionStmt.all(...connectionQuery.paramsFactory(current.chunkId, options.database)) as EdgeRow[];
+    for (const edge of edges) {
+      const target = edge?.target_chunk;
+      const edgeWeight = edge?.weight ?? 0;
+      if (!target || edgeWeight <= 0) continue;
+
+      const nextDepth = current.hopDepth + 1;
+      const nextScore = current.score * Math.pow(HOP_DECAY, nextDepth) * edgeWeight;
+      const nextCandidate: CandidateChunk = {
+        chunkId: target,
+        score: nextScore,
+        hopDepth: nextDepth,
+        path: [...current.path, `${target} (w:${edgeWeight.toFixed(2)})`],
+        vectorScore: current.vectorScore,
+      };
+
+      const existing = allCandidates.get(target);
+      if (!existing || nextCandidate.score > existing.score) {
+        allCandidates.set(target, nextCandidate);
+        if (!visited.has(target) && nextDepth < options.maxHops) {
+          queue.push(nextCandidate);
+        }
+      }
+    }
+  }
+
+  return Array.from(allCandidates.values());
+}
+
+function buildConflictMap(chunkIds: string[], database: string): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+  if (chunkIds.length < 2) return map;
+
+  const placeholders = chunkIds.map(() => '?').join(', ');
+  const rows = db.prepare(`
+    SELECT source_chunk, target_chunk
+    FROM connections
+    WHERE database_id = ?
+      AND relationship = 'contradicts'
+      AND source_chunk IN (${placeholders})
+      AND target_chunk IN (${placeholders})
+  `).all(database, ...chunkIds, ...chunkIds) as Array<{ source_chunk: string; target_chunk: string }>;
+
+  for (const row of rows) {
+    if (!map.has(row.source_chunk)) map.set(row.source_chunk, new Set());
+    if (!map.has(row.target_chunk)) map.set(row.target_chunk, new Set());
+    map.get(row.source_chunk)!.add(row.target_chunk);
+    map.get(row.target_chunk)!.add(row.source_chunk);
+  }
+
+  return map;
+}
+
+async function recordCoAccess(
+  chunkIds: string[],
+  queryHash: string,
+  queryEmbedding: number[],
+  database: string,
+): Promise<void> {
+  if (chunkIds.length === 0) return;
+
+  const uniqueChunkIds = [...new Set(chunkIds)];
+  const timestamp = Date.now();
+
+  db.prepare(`
+    INSERT INTO co_access_events (event_id, chunk_ids, query_hash, query_embedding, timestamp, database_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    randomUUID(),
+    JSON.stringify(uniqueChunkIds),
+    queryHash,
+    JSON.stringify(queryEmbedding),
+    timestamp,
+    database,
+  );
+}
+
+// ── Cross-encoder re-ranker ─────────────────────────────────────────────────
+// Xenova/ms-marco-MiniLM-L-6-v2 is a cross-encoder: it takes the full
+// [CLS] query [SEP] passage [SEP] sequence and outputs a relevance score.
+// @xenova/transformers handles the concatenation via the `text_pair` field.
+
+const RERANK_WEIGHT = 0.4;   // share of cross-encoder score in blended final score
+
+let rerankPipeline: any = null;
+let rerankPipelineLoading = false;
+let rerankErrorLogged = false;
+
+async function getRerankPipeline(): Promise<any> {
+  if (rerankPipeline) return rerankPipeline;
+  if (rerankPipelineLoading) return null;   // avoid double-loading
+
+  rerankPipelineLoading = true;
+  try {
+    const { pipeline } = await import('@xenova/transformers');
+    rerankPipeline = await pipeline(
+      'text-classification',
+      'Xenova/ms-marco-MiniLM-L-6-v2',
+      { quantized: true },   // quantized model: smaller download, same quality
+    );
+    console.log('✅ Re-ranker loaded: Xenova/ms-marco-MiniLM-L-6-v2');
+    return rerankPipeline;
+  } catch (err) {
+    console.warn('⚠️  Re-ranker model failed to load:', err);
+    return null;
+  } finally {
+    rerankPipelineLoading = false;
+  }
+}
+
+export async function predictRelevanceScore(query: string, passage: string): Promise<number> {
+  try {
+    const ranker = await getRerankPipeline();
+    if (!ranker) return 0;
+
+    // Cross-encoder input: text = query, text_pair = passage.
+    // @xenova/transformers concatenates as [CLS] query [SEP] passage [SEP].
+    const result = await ranker(query, { text_pair: passage });
+
+    // Output is [{ label: 'LABEL_0', score: 0.XX }] after softmax — take first score.
+    if (Array.isArray(result) && result.length > 0) {
+      return result[0].score ?? 0;
+    }
+    return 0;
+  } catch (err) {
+    if (!rerankErrorLogged) {
+      console.warn('⚠️  Re-ranker scoring failed, falling back to vector scores:', err);
+      rerankErrorLogged = true;
+    }
+    return 0;
+  }
+}
+
+export async function rerankCandidates(query: string, candidates: Result[]): Promise<Result[]> {
+  if (candidates.length === 0) return candidates;
+
+  const ranker = await getRerankPipeline();
+  if (!ranker) return candidates;   // graceful fallback: return in original order
+
+  const scored = await Promise.all(
+    candidates.map(async (c) => {
+      const rerankScore = await predictRelevanceScore(query, c.text);
+      return { ...c, rerankScore };
+    }),
+  );
+
+  // Blend: preserve vector+graph+MLP signal (60%) while lifting relevant passages (40%).
+  const blended = scored.map(c => ({
+    ...c,
+    score: (1 - RERANK_WEIGHT) * c.score + RERANK_WEIGHT * (c.rerankScore ?? 0),
+  }));
+
+  return blended.sort((a, b) => b.score - a.score);
+}
+
+export async function retrieve(
+  query: string,
+  topKOrOptions: number | RetrieveOptions = 20,
+  databaseOrOptions?: string | RetrieveOptions,
+  options?: RetrieveOptions,
+): Promise<Result[]> {
+  const normalized = normalizeRetrieveArgs(topKOrOptions, databaseOrOptions, options);
+  const dbName = normalized.database || DEFAULT_MEMORY_DB;
   const vector = await embed(query);
+  const queryHash = createHash('sha256').update(query).digest('hex');
+
+  const seedLimit = Math.max(10, normalized.topK);
   const hits = await qdrant.search(COLLECTION, {
     vector,
-    limit: topK,
+    limit: seedLimit,
     with_payload: true,
     filter: {
       must: [
@@ -48,34 +378,35 @@ export async function retrieve(query: string, topK: number = 20, database: strin
 
   if (hits.length === 0) return [];
 
-  const MIN_SCORE = 0.40;
-
-  const vectorCandidates: Result[] = [];
-  const vectorChunkIds = new Set<string>();
+  const seeds: CandidateChunk[] = [];
+  const seedRowsById = new Map<string, ChunkRow>();
+  const visited = new Set<string>();
 
   for (const hit of hits) {
     const payload = hit.payload as any;
     const chunk_id = payload?.chunk_id;
     if (!chunk_id) continue;
 
-    vectorChunkIds.add(chunk_id);
-    vectorCandidates.push({
-      text: payload.text,
-      source: payload.source,
+    seedRowsById.set(chunk_id, {
+      text: payload.text ?? '',
+      source: payload.source ?? '',
+    });
+
+    seeds.push({
+      chunkId: chunk_id,
       score: hit.score ?? 0,
-      chunk_id,
-      graph_boosted: false,
-      retrieval_layer: 'vector',
+      hopDepth: 0,
+      path: [chunk_id],
+      vectorScore: hit.score ?? 0,
     });
   }
 
-  const graphCandidatesById = new Map<string, Result>();
-  const connectionStmt = db.prepare(`
-    SELECT target_chunk, weight
-    FROM connections
-    WHERE source_chunk = ?
-      AND database_id = ?
-  `);
+  const expandedCandidates = await multiHopExpand(seeds, visited, {
+    database: dbName,
+    maxHops: normalized.maxHops,
+    relationshipFilter: normalized.relationshipFilter,
+  });
+
   const chunkStmt = db.prepare(`
     SELECT text, source
     FROM chunks
@@ -83,33 +414,31 @@ export async function retrieve(query: string, topK: number = 20, database: strin
       AND database_id = ?
   `);
 
-  for (const vectorResult of vectorCandidates) {
-    const neighbors = connectionStmt.all(vectorResult.chunk_id, dbName) as Array<{ target_chunk: string; weight: number | null }>;
+  const mergedPool: Array<Result & { vectorScore: number; graphScore: number; mlpConceptScore: number }> = [];
+  const seenIds = new Set<string>();
 
-    for (const neighbor of neighbors) {
-      if (!neighbor?.target_chunk) continue;
-      if (vectorChunkIds.has(neighbor.target_chunk)) continue;
+  for (const candidate of expandedCandidates) {
+    if (seenIds.has(candidate.chunkId)) continue;
 
-      const chunkRow = chunkStmt.get(neighbor.target_chunk, dbName) as { text: string; source: string } | undefined;
-      if (!chunkRow) continue;
+    const seedRow = seedRowsById.get(candidate.chunkId);
+    const chunkRow = seedRow ?? (chunkStmt.get(candidate.chunkId, dbName) as ChunkRow | undefined);
+    if (!chunkRow) continue;
 
-      const boostedScore = vectorResult.score + ((neighbor.weight ?? 0) * GRAPH_BOOST_FACTOR);
-      const existing = graphCandidatesById.get(neighbor.target_chunk);
-
-      if (!existing || boostedScore > existing.score) {
-        graphCandidatesById.set(neighbor.target_chunk, {
-          text: chunkRow.text,
-          source: chunkRow.source,
-          score: boostedScore,
-          chunk_id: neighbor.target_chunk,
-          graph_boosted: true,
-          retrieval_layer: 'graph',
-        });
-      }
-    }
+    seenIds.add(candidate.chunkId);
+    mergedPool.push({
+      text: chunkRow.text,
+      source: chunkRow.source,
+      score: candidate.score,
+      chunk_id: candidate.chunkId,
+      graph_boosted: candidate.hopDepth > 0,
+      retrieval_layer: candidate.hopDepth > 0 ? 'graph' : 'vector',
+      path: candidate.path,
+      conflicts: [],
+      vectorScore: candidate.vectorScore,
+      graphScore: candidate.hopDepth > 0 ? candidate.score : 0,
+      mlpConceptScore: 0,
+    });
   }
-
-  const mergedPool = [...vectorCandidates, ...graphCandidatesById.values()];
 
   // PHASE 6: Concept-boosted retrieval via dedicated Qdrant collection
   if (INCLUDE_CONCEPTS) {
@@ -145,20 +474,19 @@ export async function retrieve(query: string, topK: number = 20, database: strin
         // Score fusion: concept_similarity * (0.5 + 0.5 * confidence) * CONCEPT_BOOST
         // Then add to the base score of the weakest vector candidate
         const membershipFactor = conceptSimilarity * (0.5 + 0.5 * confidence);
+        const weakSeedScore = seeds.length > 0 ? seeds[seeds.length - 1].score : 0.5;
 
         for (const memberId of memberChunks) {
-          if (vectorChunkIds.has(memberId)) continue;
-          if (graphCandidatesById.has(memberId)) continue;
+          if (seenIds.has(memberId)) continue;
 
-          const chunkRow = chunkStmt.get(memberId) as { text: string; source: string } | undefined;
+          const chunkRow = chunkStmt.get(memberId, dbName) as { text: string; source: string } | undefined;
           if (!chunkRow) continue;
 
           // Base score = weakest vector hit score, boosted by concept fusion
-          const baseScore = vectorCandidates.length > 0
-            ? vectorCandidates[vectorCandidates.length - 1].score
-            : 0.5;
+          const baseScore = weakSeedScore;
           const fusedScore = baseScore + (membershipFactor * CONCEPT_BOOST);
 
+          seenIds.add(memberId);
           mergedPool.push({
             text: chunkRow.text,
             source: chunkRow.source,
@@ -166,6 +494,11 @@ export async function retrieve(query: string, topK: number = 20, database: strin
             chunk_id: memberId,
             graph_boosted: true,
             retrieval_layer: 'concept',
+            path: [memberId],
+            conflicts: [],
+            vectorScore: baseScore,
+            graphScore: 0,
+            mlpConceptScore: 0,
           });
           expandedCount++;
         }
@@ -184,9 +517,44 @@ export async function retrieve(query: string, topK: number = 20, database: strin
     }
   }
 
+  try {
+    const { conceptScores, mlpWeight } = await predictAssociativeScores(vector, dbName);
+    const chunkConceptMap = buildChunkConceptMembership(dbName);
+
+    for (const candidate of mergedPool) {
+      const mlpConceptScore = conceptScoreForChunk(candidate.chunk_id, conceptScores, chunkConceptMap);
+      candidate.mlpConceptScore = mlpConceptScore;
+      candidate.score =
+        (0.6 * candidate.vectorScore) +
+        (0.25 * candidate.graphScore) +
+        (mlpWeight * mlpConceptScore);
+    }
+  } catch (error) {
+    if (DEBUG_PERF) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`⚠️  Associative rerank skipped: ${msg}`);
+    }
+  }
+
   mergedPool.sort((a, b) => b.score - a.score);
-  const rescored = rescorePool(mergedPool);
+  const rescored = rescorePool(mergedPool).map(candidate => ({
+    text: candidate.text,
+    source: candidate.source,
+    score: candidate.score,
+    chunk_id: candidate.chunk_id,
+    graph_boosted: candidate.graph_boosted,
+    retrieval_layer: candidate.retrieval_layer,
+    path: candidate.path,
+    conflicts: candidate.conflicts,
+  }));
   rescored.sort((a, b) => b.score - a.score);
+
+  if (normalized.includeConflicts) {
+    const conflictMap = buildConflictMap(rescored.map(r => r.chunk_id), dbName);
+    for (const result of rescored) {
+      result.conflicts = Array.from(conflictMap.get(result.chunk_id) ?? []);
+    }
+  }
 
   if (rescored.length <= 1) {
     for (const result of rescored) {
@@ -199,13 +567,16 @@ export async function retrieve(query: string, topK: number = 20, database: strin
       `).run(new Date().toISOString(), result.chunk_id, dbName);
     }
 
+    await recordCoAccess(rescored.map(r => r.chunk_id), queryHash, vector, dbName);
+
     return rescored;
   }
 
-  const filtered = rescored
-    .slice(0, MAX_RERANK_CANDIDATES)
-    .filter((candidate: Result) => candidate.score >= MIN_SCORE)
-    .slice(0, 5);
+  const topCandidates = rescored.slice(0, MAX_RERANK_CANDIDATES);
+  const reranked = await rerankCandidates(query, topCandidates);
+  const filtered = reranked
+    .filter(c => c.score >= MIN_SCORE)
+    .slice(0, normalized.topK);
 
   if (filtered.length === 0) return [];
 
@@ -220,6 +591,8 @@ export async function retrieve(query: string, topK: number = 20, database: strin
         AND database_id = ?
     `).run(new Date().toISOString(), chunk_id, dbName);
   }
+
+  await recordCoAccess(filtered.map(r => r.chunk_id), queryHash, vector, dbName);
 
   return filtered;
 }
@@ -267,6 +640,8 @@ export async function retrieveByVector(embedding: number[], k: number = 10, data
       chunk_id,
       graph_boosted: false,
       retrieval_layer: 'vector',
+      path: [chunk_id],
+      conflicts: [],
     });
   }
 
@@ -335,6 +710,8 @@ export async function expandWithConcepts(
           chunk_id: memberId,
           graph_boosted: true,
           retrieval_layer: 'concept',
+          path: [memberId],
+          conflicts: [],
         });
       }
 

@@ -5,6 +5,7 @@ import { handleHealthRoutes } from './routes/healthRoute';
 import { handleQueryRoutes } from './routes/queryRoute';
 import { handleIngestRoutes } from './routes/ingestRoute';
 import { handleDbRoutes } from './routes/dbRoute';
+import { handleOverviewRoutes } from './routes/overviewRoute';
 
 export function startHttpServer(): void {
   const httpPort = process.env.HTTP_PORT || DEFAULT_HTTP_PORT;
@@ -29,7 +30,8 @@ export function startHttpServer(): void {
           await handleDbRoutes(req, res, url, method) ||
           await handleHealthRoutes(req, res, url, method) ||
           await handleQueryRoutes(req, res, url, method) ||
-          await handleIngestRoutes(req, res, url, method);
+          await handleIngestRoutes(req, res, url, method) ||
+          await handleOverviewRoutes(req, res, url, method);
 
         if (!handled) {
           sendJson(res, 404, { error: 'Not Found' });

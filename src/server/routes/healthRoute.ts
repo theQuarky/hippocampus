@@ -2,6 +2,9 @@
 import { IncomingMessage, ServerResponse } from 'http';
 import { db, DEFAULT_MEMORY_DB } from '../../db';
 import { sendJson, clampNumber, type RelationshipCounts } from '../helpers';
+import { clusterIntoConcepts } from '../../consolidate/cluster';
+import { abstractConcepts } from '../../consolidate';
+import { syncConceptEmbeddings } from '../../concepts/sync';
 
 function getRelationshipCounts(database: string): RelationshipCounts {
   const base: RelationshipCounts = {
@@ -262,6 +265,101 @@ export async function handleHealthRoutes(
       sendJson(res, 500, { error: message });
       return true;
     }
+  }
+
+  if (method === 'GET' && url.pathname === '/api/ingest-events') {
+    try {
+      const database = url.searchParams.get('database')?.trim() || DEFAULT_MEMORY_DB;
+      const rawLimit = Number(url.searchParams.get('limit') ?? 100);
+      const limit = clampNumber(Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 100, 1, 500);
+      const since = url.searchParams.get('since');
+
+      const filters: string[] = ['database_id = ?'];
+      const args: Array<string | number> = [database];
+
+      if (since) {
+        const sinceMs = Number(since);
+        if (Number.isFinite(sinceMs)) {
+          // ingest_events.timestamp is an ISO string; compare as text (ISO strings sort lexicographically)
+          filters.push(`timestamp >= datetime(?, 'unixepoch', 'localtime')`);
+          args.push(Math.floor(sinceMs / 1000));
+        }
+      }
+
+      const whereClause = `WHERE ${filters.join(' AND ')}`;
+      const rows = db.prepare(`
+        SELECT event_id, source, chunks_stored, chunks_skipped, connections_seeded, tags, timestamp
+        FROM ingest_events
+        ${whereClause}
+        ORDER BY timestamp DESC
+        LIMIT ?
+      `).all(...args, limit) as Array<{
+        event_id: string;
+        source: string;
+        chunks_stored: number;
+        chunks_skipped: number;
+        connections_seeded: number;
+        tags: string | null;
+        timestamp: string;
+      }>;
+
+      sendJson(res, 200, rows);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown API error';
+      sendJson(res, 500, { error: message });
+      return true;
+    }
+  }
+
+  if (method === 'GET' && url.pathname === '/api/sources') {
+    try {
+      const database = url.searchParams.get('database')?.trim() || DEFAULT_MEMORY_DB;
+
+      const rows = db.prepare(`
+        SELECT
+          c.source,
+          COUNT(c.chunk_id)        AS chunk_count,
+          COALESCE(conn.cnt, 0)    AS connection_count,
+          MAX(c.timestamp)         AS last_ingested
+        FROM chunks c
+        LEFT JOIN (
+          SELECT source_chunk, COUNT(*) AS cnt
+          FROM connections
+          WHERE database_id = ?
+          GROUP BY source_chunk
+        ) conn ON conn.source_chunk = c.chunk_id
+        WHERE c.database_id = ?
+        GROUP BY c.source
+        ORDER BY last_ingested DESC
+      `).all(database, database) as Array<{
+        source: string;
+        chunk_count: number;
+        connection_count: number;
+        last_ingested: string;
+      }>;
+
+      sendJson(res, 200, rows);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown API error';
+      sendJson(res, 500, { error: message });
+      return true;
+    }
+  }
+
+  if (method === 'POST' && url.pathname === '/api/consolidate/concepts') {
+    sendJson(res, 202, { triggered: true });
+    void (async () => {
+      try {
+        await clusterIntoConcepts();
+        await abstractConcepts();
+        await syncConceptEmbeddings();
+      } catch (err) {
+        console.error('❌ Concept clustering failed:', err);
+      }
+    })();
+    return true;
   }
 
   return false;

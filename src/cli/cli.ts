@@ -10,7 +10,9 @@ import {
   cmdConcepts,
   cmdBenchmark,
   cmdSyncConcepts,
+  cmdOverview,
 } from './commands';
+import type { OverviewFormat } from '../audio/overview';
 
 async function main() {
   await initDB();
@@ -122,6 +124,19 @@ async function main() {
 
     case 'sync-concepts': {
       await cmdSyncConcepts();
+      break;
+    }
+
+    case 'overview': {
+      if (!argument) { console.error('Usage: overview <question> [--format monologue|dialogue|interview] [--db <name>]'); process.exit(1); }
+      // Parse optional --format flag
+      const formatIdx = args.indexOf('--format');
+      const formatArg = formatIdx !== -1 ? args[formatIdx + 1] : undefined;
+      const validFormats = new Set<OverviewFormat>(['monologue', 'dialogue', 'interview']);
+      const format: OverviewFormat = (formatArg && validFormats.has(formatArg as OverviewFormat))
+        ? (formatArg as OverviewFormat)
+        : 'monologue';
+      await cmdOverview(argument, format, database);
       break;
     }
 

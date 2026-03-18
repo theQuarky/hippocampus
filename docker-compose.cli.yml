@@ -1,5 +1,5 @@
 services:
   hippocampus:
-    entrypoint: ["node", "dist/index.js"]
+    entrypoint: ["node", "dist/cli/cli.js"]
     restart: "no"
     ports: []

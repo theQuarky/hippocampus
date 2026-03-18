@@ -35,7 +35,14 @@ export async function handleQueryRoutes(
 
   if (method === 'POST' && url.pathname === '/api/query') {
     try {
-      const body = await parseBody(req) as { query?: string; top_k?: number; database?: string };
+      const body = await parseBody(req) as {
+        query?: string;
+        top_k?: number;
+        database?: string;
+        maxHops?: number;
+        relationshipFilter?: string[];
+        includeConflicts?: boolean;
+      };
       const query = body.query?.trim() ?? '';
       const database = body.database && typeof body.database === 'string'
         ? body.database.trim()
@@ -44,7 +51,17 @@ export async function handleQueryRoutes(
         ? Math.floor(body.top_k)
         : 5;
 
-      const results: Result[] = await retrieve(query, topK, database);
+      const results: Result[] = await retrieve(query, {
+        topK,
+        database,
+        maxHops: typeof body.maxHops === 'number' && Number.isFinite(body.maxHops)
+          ? Math.floor(body.maxHops)
+          : undefined,
+        relationshipFilter: Array.isArray(body.relationshipFilter)
+          ? body.relationshipFilter
+          : undefined,
+        includeConflicts: typeof body.includeConflicts === 'boolean' ? body.includeConflicts : true,
+      });
       sendJson(res, 200, results);
       return true;
     } catch (error) {

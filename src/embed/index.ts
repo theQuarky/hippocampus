@@ -4,23 +4,9 @@ let embeddingPipeline: any = null;
 
 async function getEmbeddingPipeline() {
   if (!embeddingPipeline) {
-    try {
-      const transformers = await import('@huggingface/transformers' as any);
-      embeddingPipeline = await transformers.pipeline(
-        'feature-extraction',
-        EMBED_MODEL,
-        { device: 'cuda', dtype: 'fp16' }
-      );
-      console.log(`🔥 Embedding model loaded on GPU (${EMBED_MODEL})`);
-    } catch {
-      // Fallback to CPU with @xenova/transformers
-      const { pipeline } = await import('@xenova/transformers');
-      embeddingPipeline = await pipeline(
-        'feature-extraction',
-        EMBED_MODEL
-      );
-      console.log(`💻 Embedding model loaded on CPU (${EMBED_MODEL})`);
-    }
+    const { pipeline } = await import('@xenova/transformers');
+    embeddingPipeline = await pipeline('feature-extraction', EMBED_MODEL);
+    console.log(`💻 Embedding model loaded on CPU (${EMBED_MODEL})`);
   }
   return embeddingPipeline;
 }
@@ -61,4 +47,17 @@ export async function embedBatch(texts: string[]): Promise<number[][]> {
   }
 
   return vectors;
+}
+
+// CLIP image embedding — 512d, stored in a separate Qdrant collection.
+export async function embedImage(imagePath: string): Promise<number[]> {
+  try {
+    const { pipeline } = await import('@xenova/transformers');
+    const clipPipeline = await pipeline('image-feature-extraction', 'Xenova/clip-vit-base-patch32');
+    const output = await clipPipeline(imagePath);
+    return Array.from(output.data as Float32Array);
+  } catch {
+    console.warn('⚠️  CLIP embedding failed, skipping image embedding');
+    return [];
+  }
 }

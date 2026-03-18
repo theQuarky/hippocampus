@@ -68,6 +68,8 @@ export type QueryResult = {
   score: number;
   chunk_id: string;
   graph_boosted: boolean;
+  path: string[];
+  conflicts: string[];
   rerank_score?: number;
 };
 
@@ -200,7 +202,13 @@ export async function getConcepts(): Promise<Concept[]> {
   return request<Concept[]>(`/api/concepts${suffix}`);
 }
 
-export async function postQuery(payload: { query: string; top_k?: number }): Promise<QueryResult[]> {
+export async function postQuery(payload: {
+  query: string;
+  top_k?: number;
+  maxHops?: number;
+  relationshipFilter?: string[];
+  includeConflicts?: boolean;
+}): Promise<QueryResult[]> {
   const body = {
     ...payload,
     ...(activeDatabase ? { database: activeDatabase } : {}),
@@ -287,5 +295,89 @@ export async function deleteDatabase(name: string): Promise<void> {
   await request<unknown>('/api/db/delete', {
     method: 'POST',
     body: JSON.stringify({ name }),
+  });
+}
+
+// ── New types ────────────────────────────────────────────────────────────────
+
+export type QueryAnswerResult = {
+  answer: string;
+  evidence: QueryResult[];
+  concepts_used: string[];
+  sources: string[];
+  database: string;
+};
+
+export type IngestEvent = {
+  event_id: string;
+  source: string;
+  chunks_stored: number;
+  chunks_skipped: number;
+  connections_seeded: number;
+  timestamp: string;
+};
+
+export type SourceSummary = {
+  source: string;
+  chunk_count: number;
+  connection_count: number;
+  last_ingested: string;
+};
+
+// ── New API functions ────────────────────────────────────────────────────────
+
+export async function postQueryAnswer(payload: {
+  query: string;
+  maxHops?: number;
+  includeConflicts?: boolean;
+  topK?: number;
+}): Promise<QueryAnswerResult> {
+  const body: Record<string, unknown> = { question: payload.query };
+  if (activeDatabase) body.database = activeDatabase;
+  return request<QueryAnswerResult>('/api/query-answer', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getIngestEvents(params: { limit?: number; since?: number } = {}): Promise<IngestEvent[]> {
+  const query = new URLSearchParams();
+  if (activeDatabase) query.set('database', activeDatabase);
+  if (params.limit) query.set('limit', String(params.limit));
+  if (params.since) query.set('since', String(params.since));
+  return request<IngestEvent[]>(`/api/ingest-events?${query.toString()}`);
+}
+
+export async function getSources(): Promise<SourceSummary[]> {
+  const query = new URLSearchParams();
+  if (activeDatabase) query.set('database', activeDatabase);
+  return request<SourceSummary[]>(`/api/sources?${query.toString()}`);
+}
+
+export async function triggerConceptClustering(): Promise<{ triggered: boolean }> {
+  const body: Record<string, unknown> = {};
+  if (activeDatabase) body.database = activeDatabase;
+  return request<{ triggered: boolean }>('/api/consolidate/concepts', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function postOverview(payload: {
+  query: string;
+  format: 'monologue' | 'dialogue' | 'interview';
+  database?: string;
+}): Promise<{
+  audioUrl: string;
+  format: string;
+  duration: number;
+  script: Array<{ speaker: string; text: string }>;
+  engine: string;
+  title: string;
+  wordCount: number;
+}> {
+  return request('/api/overview', {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }

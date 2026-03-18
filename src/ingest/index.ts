@@ -2,7 +2,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { stat } from 'node:fs/promises';
 import { embedBatch } from '../embed';
-import { parseFile } from './parser';
+import { parseFileWithMetadata } from './parser';
 import { semanticChunkText, Chunk } from './chunking/semantic';
 import { tokenChunkText } from './chunking/token';
 import { llmChunkText } from './chunking/llm';
@@ -63,6 +63,7 @@ type IngestTextOptions = {
   fileSizeBytes?: number;
   concurrency?: number;
   onProgress?: (event: ProgressEvent) => void;
+  metadata?: Record<string, unknown>;
 };
 
 type PerfStageTotals = {
@@ -188,7 +189,8 @@ export async function ingest(
   onProgress?: (event: ProgressEvent) => void,
   database: string = DEFAULT_MEMORY_DB,
 ): Promise<IngestResult> {
-  const text = await parseFile(filePath);
+  const parsed = await parseFileWithMetadata(filePath);
+  const text = parsed.text;
 
   let fileSizeBytes: number | undefined;
   try {
@@ -197,7 +199,17 @@ export async function ingest(
     fileSizeBytes = undefined;
   }
 
-  return ingestText(sourceOverride ?? filePath, text, tags, { fileSizeBytes, onProgress }, database);
+  return ingestText(
+    sourceOverride ?? filePath,
+    text,
+    tags,
+    {
+      fileSizeBytes,
+      onProgress,
+      metadata: parsed.metadata,
+    },
+    database,
+  );
 }
 
 export async function ingestText(
@@ -275,6 +287,7 @@ export async function ingestText(
   const databaseName = database || DEFAULT_MEMORY_DB;
   const concurrency = options.concurrency ?? resolveConcurrency();
   const onProgress = options.onProgress;
+  const parsedMetadata = options.metadata ?? {};
   const sizeSuffix = typeof options.fileSizeBytes === 'number' ? ` (${formatMegabytes(options.fileSizeBytes)})` : '';
 
   console.log(`\n📥 Ingesting: ${source}${sizeSuffix}`);
@@ -295,13 +308,14 @@ export async function ingestText(
 
   let chunks: Chunk[];
   const strategy = process.env.CHUNK_STRATEGY ?? 'token';
-  const chunkFn = strategy === 'llm'
-    ? llmChunkText
-    : strategy === 'fast'
-      ? semanticChunkText
-      : tokenChunkText;
   try {
-    chunks = await chunkFn(text);
+    if (strategy === 'llm') {
+      chunks = await llmChunkText(text);
+    } else if (strategy === 'fast') {
+      chunks = await semanticChunkText(text, { metadata: parsedMetadata });
+    } else {
+      chunks = await tokenChunkText(text);
+    }
   } finally {
     clearInterval(chunkingHeartbeat);
   }
@@ -323,7 +337,8 @@ export async function ingestText(
   const duplicateThreshold = 0.97;
   const skipDuplicateCheck = process.env.SKIP_DUPLICATE_CHECK === 'true';
   const deferGraphBuild = process.env.DEFER_GRAPH_BUILD === 'true';
-  const BATCH_SIZE = 4;
+  const embedModel = process.env.EMBED_MODEL ?? '';
+  const BATCH_SIZE = /nomic/i.test(embedModel) ? 4 : 32;
   const ingestTimestamp = new Date().toISOString();
   const ingestStartMs = Date.now();
   let stored = 0;
@@ -419,12 +434,12 @@ export async function ingestText(
 
   const progress = new ProgressBar({ total: chunks.length, fallbackEvery: 50, minColumns: 60 });
   const insertChunkStmt = db.prepare(`
-    INSERT INTO chunks (chunk_id, text, source, page, timestamp, tags, database_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO chunks (chunk_id, text, source, page, timestamp, tags, metadata, database_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const batchInsertChunks = db.transaction((items: { chunkId: string; text: string; source: string; page: number; timestamp: string; tagsJson: string }[]) => {
+  const batchInsertChunks = db.transaction((items: { chunkId: string; text: string; source: string; page: number; timestamp: string; tagsJson: string; metadataJson: string }[]) => {
     for (const item of items) {
-      insertChunkStmt.run(item.chunkId, item.text, item.source, item.page, item.timestamp, item.tagsJson, databaseName);
+      insertChunkStmt.run(item.chunkId, item.text, item.source, item.page, item.timestamp, item.tagsJson, item.metadataJson, databaseName);
     }
   });
 
@@ -494,7 +509,13 @@ export async function ingestText(
           points: toStore.map(c => ({
             id: c.chunkId,
             vector: c.vector,
-            payload: { text: c.chunk.text, source, chunk_id: c.chunkId, database_id: databaseName },
+            payload: {
+              text: c.chunk.text,
+              source,
+              chunk_id: c.chunkId,
+              database_id: databaseName,
+              ...(c.chunk.metadata ?? {}),
+            },
           })),
         });
         upsertMs = Date.now() - upsertStart;
@@ -521,6 +542,7 @@ export async function ingestText(
         page: c.chunk.index,
         timestamp: c.timestamp,
         tagsJson: JSON.stringify(tags),
+          metadataJson: JSON.stringify(c.chunk.metadata ?? {}),
       })));
       const sqliteMs = Date.now() - sqliteStart;
       perfTotals.sqliteMs += sqliteMs;

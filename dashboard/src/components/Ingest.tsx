@@ -19,7 +19,21 @@ type IngestJob = {
 
 type JobFilter = 'all' | 'active' | 'completed';
 
-const ACCEPTED_FILE_TYPES = '.txt,.md,.pdf,.docx,.html';
+const DOCUMENT_EXTENSIONS = ['.txt', '.md', '.pdf', '.docx', '.html'];
+const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.flac', '.m4a', '.ogg', '.opus', '.webm'];
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v'];
+
+const SUPPORTED_EXTENSIONS = [
+  ...new Set([
+    ...DOCUMENT_EXTENSIONS,
+    ...AUDIO_EXTENSIONS,
+    ...IMAGE_EXTENSIONS,
+    ...VIDEO_EXTENSIONS,
+  ]),
+];
+
+const ACCEPTED_FILE_TYPES = SUPPORTED_EXTENSIONS.join(',');
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -37,6 +51,21 @@ function parseTags(raw: string): string[] {
 function formatTimestamp(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function getFileExtension(fileName: string): string {
+  const dot = fileName.lastIndexOf('.');
+  if (dot < 0) return '';
+  return fileName.slice(dot).toLowerCase();
+}
+
+function validateSelectedFile(file: File): string | null {
+  const extension = getFileExtension(file.name);
+  if (!extension || !SUPPORTED_EXTENSIONS.includes(extension)) {
+    return `Unsupported file type "${extension || 'unknown'}". Supported: ${SUPPORTED_EXTENSIONS.join(', ')}`;
+  }
+
+  return null;
 }
 
 export function Ingest() {
@@ -75,6 +104,19 @@ export function Ingest() {
 
   const onFileSelected = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      setSelectedFile(null);
+      setErrorMessage(null);
+      return;
+    }
+
+    const validation = validateSelectedFile(file);
+    if (validation) {
+      setSelectedFile(null);
+      setErrorMessage(validation);
+      return;
+    }
+
     setSelectedFile(file);
     setErrorMessage(null);
   };
@@ -85,6 +127,13 @@ export function Ingest() {
 
     const file = event.dataTransfer.files?.[0] ?? null;
     if (!file) return;
+
+    const validation = validateSelectedFile(file);
+    if (validation) {
+      setSelectedFile(null);
+      setErrorMessage(validation);
+      return;
+    }
 
     setSelectedFile(file);
     setErrorMessage(null);
@@ -208,9 +257,12 @@ export function Ingest() {
             }}
           >
             <div className="dropzone-icon">📄</div>
-            <p>Drag and drop a file here</p>
+            <p>Drag and drop a file here (documents, audio, image, video)</p>
             <p className="muted">or click to browse</p>
-            <p className="muted">Accepted: .txt .md .pdf .docx .html</p>
+            <p className="muted">Docs: .txt .md .pdf .docx .html</p>
+            <p className="muted">Audio: .mp3 .wav .flac .m4a .ogg .opus .webm</p>
+            <p className="muted">Images: .jpg .jpeg .png .gif .webp .bmp</p>
+            <p className="muted">Video: .mp4 .mkv .avi .mov .webm .m4v</p>
           </div>
 
           {selectedFile && (

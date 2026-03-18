@@ -2,34 +2,39 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
 import Database from 'better-sqlite3';
 import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import { EMBED_DIMS, QDRANT_URL, QDRANT_COLLECTION } from '../config';
 
 const COLLECTION = QDRANT_COLLECTION;
 const CONCEPT_COLLECTION = `${QDRANT_COLLECTION}_concepts`;
+const IMAGE_COLLECTION = `${QDRANT_COLLECTION}_images`;
 const VECTOR_SIZE = EMBED_DIMS;
 
 // ── Qdrant ─────────────────────────────────────────
 export const qdrant = new QdrantClient({ url: QDRANT_URL });
 
 export async function initQdrant() {
+  await ensureCollection(COLLECTION, VECTOR_SIZE, 'main');
+}
+
+async function ensureCollection(name: string, vectorSize: number, label: string) {
   const existing = await qdrant.getCollections();
-  const exists = existing.collections.some(c => c.name === COLLECTION);
+  const exists = existing.collections.some(c => c.name === name);
 
   if (!exists) {
-    await qdrant.createCollection(COLLECTION, {
-      vectors: { size: VECTOR_SIZE, distance: 'Cosine' }
+    await qdrant.createCollection(name, {
+      vectors: { size: vectorSize, distance: 'Cosine' }
     });
-    console.log(`✅ Qdrant collection "${COLLECTION}" created (dims=${VECTOR_SIZE})`);
+    console.log(`✅ Qdrant ${label} collection "${name}" created (dims=${vectorSize})`);
   } else {
-    // Validate that existing collection vector size matches EMBED_DIMS
-    const info = await qdrant.getCollection(COLLECTION);
+    const info = await qdrant.getCollection(name);
     const collectionSize = (info.config?.params?.vectors as any)?.size;
-    if (typeof collectionSize === 'number' && collectionSize !== VECTOR_SIZE) {
+    if (typeof collectionSize === 'number' && collectionSize !== vectorSize) {
       console.error(
-        `\n❌ Qdrant collection "${COLLECTION}" has vector size ${collectionSize}, ` +
-        `but EMBED_DIMS is ${VECTOR_SIZE}.\n` +
+        `\n❌ Qdrant ${label} collection "${name}" has vector size ${collectionSize}, ` +
+        `but expected ${vectorSize}.\n` +
         `   Either:\n` +
-        `   1) Delete and recreate the collection: curl -X DELETE ${QDRANT_URL}/collections/${COLLECTION}\n` +
+        `   1) Delete and recreate the collection: curl -X DELETE ${QDRANT_URL}/collections/${name}\n` +
         `   2) Use a different collection name: QDRANT_COLLECTION=my_new_collection\n`
       );
       process.exit(1);
@@ -37,7 +42,7 @@ export async function initQdrant() {
   }
 }
 
-export { COLLECTION, CONCEPT_COLLECTION };
+export { COLLECTION, CONCEPT_COLLECTION, IMAGE_COLLECTION };
 
 // ── SQLite ─────────────────────────────────────────
 const DB_PATH = process.env.DB_PATH ?? path.join(process.cwd(), 'hippocampus.db');
@@ -75,6 +80,7 @@ export function initSQLite() {
       access_count INTEGER DEFAULT 0,
       last_accessed TEXT,
       tags        TEXT DEFAULT '[]',
+      metadata    TEXT DEFAULT '{}',
       is_duplicate INTEGER DEFAULT 0,
       contradiction_flag INTEGER DEFAULT 0
     );
@@ -110,18 +116,43 @@ export function initSQLite() {
       timestamp            TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS co_access_events (
+      event_id          TEXT PRIMARY KEY,
+      chunk_ids         TEXT NOT NULL,
+      query_hash        TEXT NOT NULL,
+      query_embedding   TEXT,
+      timestamp         INTEGER NOT NULL,
+      database_id       TEXT DEFAULT 'default'
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_co_access_timestamp
+    ON co_access_events(timestamp);
+
+    CREATE TABLE IF NOT EXISTS associative_memory (
+      model_id      TEXT PRIMARY KEY,
+      weights_json  TEXT NOT NULL,
+      num_concepts  INTEGER NOT NULL,
+      trained_on    INTEGER NOT NULL,
+      last_trained  INTEGER NOT NULL,
+      accuracy      REAL
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_unique_triplet
     ON connections (source_chunk, target_chunk, relationship);
   `);
 
   addColumnIfMissing('chunks', 'is_duplicate INTEGER DEFAULT 0');
   addColumnIfMissing('chunks', 'contradiction_flag INTEGER DEFAULT 0');
+  addColumnIfMissing('chunks', 'metadata TEXT DEFAULT "{}"');
   // Multi-database support
   addColumnIfMissing('chunks', 'database_id TEXT DEFAULT "default"');
   addColumnIfMissing('connections', 'database_id TEXT DEFAULT "default"');
   addColumnIfMissing('concepts', 'database_id TEXT DEFAULT "default"');
   addColumnIfMissing('ingest_events', 'database_id TEXT DEFAULT "default"');
+  addColumnIfMissing('co_access_events', 'database_id TEXT DEFAULT "default"');
+  addColumnIfMissing('co_access_events', 'query_embedding TEXT');
   addColumnIfMissing('connections', 'last_reinforced TEXT');
+  addColumnIfMissing('connections', 'access_count INTEGER DEFAULT 0');
 
   // PHASE 4 — learning weight columns on connections
   addColumnIfMissing('connections', 'support_count INTEGER DEFAULT 0');
@@ -144,32 +175,42 @@ export function initSQLite() {
 }
 
 async function initConceptQdrant() {
-  const existing = await qdrant.getCollections();
-  const exists = existing.collections.some(c => c.name === CONCEPT_COLLECTION);
+  await ensureCollection(CONCEPT_COLLECTION, VECTOR_SIZE, 'concept');
+}
 
-  if (!exists) {
-    await qdrant.createCollection(CONCEPT_COLLECTION, {
-      vectors: { size: VECTOR_SIZE, distance: 'Cosine' }
-    });
-    console.log(`✅ Qdrant concept collection "${CONCEPT_COLLECTION}" created (dims=${VECTOR_SIZE})`);
-  } else {
-    const info = await qdrant.getCollection(CONCEPT_COLLECTION);
-    const collectionSize = (info.config?.params?.vectors as any)?.size;
-    if (typeof collectionSize === 'number' && collectionSize !== VECTOR_SIZE) {
-      console.error(
-        `\n❌ Qdrant concept collection "${CONCEPT_COLLECTION}" has vector size ${collectionSize}, ` +
-        `but EMBED_DIMS is ${VECTOR_SIZE}.\n` +
-        `   Delete and recreate: curl -X DELETE ${QDRANT_URL}/collections/${CONCEPT_COLLECTION}\n`
-      );
-      process.exit(1);
-    }
-  }
+async function initImageQdrant() {
+  await ensureCollection(IMAGE_COLLECTION, 512, 'image');
 }
 
 export async function initDB() {
   await initQdrant();
   await initConceptQdrant();
+  await initImageQdrant();
   initSQLite();
+}
+
+export async function storeImageEmbedding(
+  imagePath: string,
+  clipEmbedding: number[],
+  description: string,
+  ocrText?: string,
+): Promise<void> {
+  if (clipEmbedding.length === 0) return;
+
+  await qdrant.upsert(IMAGE_COLLECTION, {
+    wait: true,
+    points: [{
+      id: uuidv4(),
+      vector: clipEmbedding,
+      payload: {
+        image_path: imagePath,
+        description,
+        ocr_text: ocrText ?? '',
+        ocr_detected: Boolean(ocrText),
+        timestamp: Date.now(),
+      },
+    }],
+  });
 }
 
 // ── Memory database helpers ───────────────────────────────────────────────
@@ -191,4 +232,5 @@ export function ensureDefaultMemoryDatabase(): void {
   db.prepare("UPDATE connections SET database_id = ? WHERE database_id IS NULL OR database_id = ''").run(DEFAULT_MEMORY_DB);
   db.prepare("UPDATE concepts SET database_id = ? WHERE database_id IS NULL OR database_id = ''").run(DEFAULT_MEMORY_DB);
   db.prepare("UPDATE ingest_events SET database_id = ? WHERE database_id IS NULL OR database_id = ''").run(DEFAULT_MEMORY_DB);
+  db.prepare("UPDATE co_access_events SET database_id = ? WHERE database_id IS NULL OR database_id = ''").run(DEFAULT_MEMORY_DB);
 }

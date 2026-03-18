@@ -1,9 +1,11 @@
 // src/consolidate/concepts.ts — Cycle 3: concept abstraction, validation, and merging
-import ollama from 'ollama';
+import { Ollama } from 'ollama';
 import { db } from '../db';
 import { embed } from '../embed';
 import { v4 as uuidv4 } from 'uuid';
-import { ENABLE_CONCEPT_VALIDATION } from '../config';
+import { ENABLE_CONCEPT_VALIDATION, OLLAMA_URL } from '../config';
+
+const ollama = new Ollama({ host: OLLAMA_URL });
 import {
   S, MODEL,
   CONCEPT_CLUSTER_MIN_SIZE,

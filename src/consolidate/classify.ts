@@ -1,11 +1,13 @@
 // src/consolidate/classify.ts — Cycle 2: LLM-based edge classification
-import ollama from 'ollama';
+import { Ollama } from 'ollama';
 import {
   S, MODEL, BASE_WEIGHTS, ENABLE_LEARNING_WEIGHTS,
   parseRelationship, computeWeight,
   type Relationship, type ChunkRow, type ConnectionRow,
 } from './helpers';
-import { CONSOLIDATION_BATCH_SIZE } from '../config';
+import { CONSOLIDATION_BATCH_SIZE, OLLAMA_URL } from '../config';
+
+const ollama = new Ollama({ host: OLLAMA_URL });
 
 // ── LLM helpers ────────────────────────────────────────────────────────────
 

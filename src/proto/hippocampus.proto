@@ -25,6 +25,9 @@ message IngestResponse {
 message QueryRequest {
   string query = 1;
   int32 top_k = 2;
+  int32 max_hops = 3;
+  repeated string relationship_filter = 4;
+  bool include_conflicts = 5;
 }
 
 message QueryResponse {
@@ -37,6 +40,8 @@ message Result {
   float score = 3;
   string chunk_id = 4;
   bool graph_boosted = 5;
+  repeated string path = 6;
+  repeated string conflicts = 7;
 }
 
 message HealthRequest {}
@@ -46,4 +51,5 @@ message HealthResponse {
   int32 total_chunks = 2;
   int32 total_connections = 3;
   int32 collections = 4;
+  string service_version = 5;
 }

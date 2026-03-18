@@ -23,13 +23,6 @@ services:
       - "11434:11434"
     volumes:
       - ./data/ollama:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/11434'"]
       interval: 15s
@@ -50,6 +43,7 @@ services:
       - ./data/hippocampus:/app/data
       - ./data/models:/app/models
       - ./uploads:/app/uploads
+      - ./data/piper-voices:/app/piper-voices
     environment:
       - NODE_ENV=production
       - GRPC_PORT=50051
@@ -59,15 +53,15 @@ services:
       - OLLAMA_HOST=http://ollama:11434
       - OLLAMA_CONCURRENCY=8
       - CHUNK_STRATEGY=fast
+      - WHISPER_MODEL=small
+      - VISION_MODEL=moondream
+      - KEYFRAME_INTERVAL=60
+      - AUDIO_CHUNK_MINUTES=2
       - DB_PATH=/app/data/hippocampus.db
+      - OVERVIEWS_DIR=/app/data/overviews
       - TRANSFORMERS_CACHE=/app/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+      - CUDA_VISIBLE_DEVICES=-1
+      - PIPER_VOICES_DIR=/app/piper-voices
     depends_on:
       qdrant:
         condition: service_healthy
@@ -82,7 +76,8 @@ services:
     entrypoint: >
       sh -c "
         ollama pull phi3:mini &&
-        echo 'Models ready'
+        ollama pull moondream &&
+        echo '✅ Models ready'
       "
     environment:
       - OLLAMA_HOST=http://ollama:11434

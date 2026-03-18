@@ -42,6 +42,9 @@ export type MultipartUpload = {
 export type QueryRequest = {
   query?: string;
   top_k?: number;
+  max_hops?: number;
+  relationship_filter?: string[];
+  include_conflicts?: boolean;
 };
 
 export type QueryResponse = {
@@ -51,6 +54,8 @@ export type QueryResponse = {
     score: number;
     chunk_id: string;
     graph_boosted: boolean;
+    path: string[];
+    conflicts: string[];
   }>;
 };
 
@@ -59,6 +64,7 @@ export type HealthResponse = {
   total_chunks: number;
   total_connections: number;
   collections: number;
+  service_version: string;
 };
 
 export type RelationshipCounts = {

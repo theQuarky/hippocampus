@@ -187,6 +187,15 @@ export const queryHandler: grpc.handleUnaryCall<QueryRequest, QueryResponse> = (
   void (async () => {
     const query = call.request.query?.trim() ?? '';
     const topK = call.request.top_k && call.request.top_k > 0 ? call.request.top_k : 5;
+    const maxHops = typeof call.request.max_hops === 'number' && call.request.max_hops >= 0
+      ? call.request.max_hops
+      : undefined;
+    const relationshipFilter = Array.isArray(call.request.relationship_filter) && call.request.relationship_filter.length > 0
+      ? call.request.relationship_filter
+      : undefined;
+    const includeConflicts = typeof call.request.include_conflicts === 'boolean'
+      ? call.request.include_conflicts
+      : true;
 
     console.log(`➡️  Query request query=${query}`);
 
@@ -198,7 +207,12 @@ export const queryHandler: grpc.handleUnaryCall<QueryRequest, QueryResponse> = (
     }
 
     try {
-      const results = await retrieve(query, topK);
+      const results = await retrieve(query, {
+        topK,
+        maxHops,
+        relationshipFilter,
+        includeConflicts,
+      });
       console.log(`✅ Query response results=${results.length}`);
       callback(null, { results });
     } catch (error) {
@@ -223,6 +237,7 @@ export const healthHandler: grpc.handleUnaryCall<Record<string, never>, HealthRe
         total_chunks: chunksRow.total,
         total_connections: connectionsRow.total,
         collections: collections.collections.length,
+        service_version: '2.0.0',
       };
 
       console.log(`✅ Health response chunks=${response.total_chunks} connections=${response.total_connections} collections=${response.collections}`);

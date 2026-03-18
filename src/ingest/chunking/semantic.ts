@@ -2,7 +2,11 @@
 // Strategy: headers first → paragraph/sentence split for oversized sections → merge tiny chunks
 import { splitSentences } from './segment';
 
-export interface Chunk { text: string; index: number; }
+export interface Chunk {
+  text: string;
+  index: number;
+  metadata?: Record<string, unknown>;
+}
 
 function approxTokens(s: string): number {
   return Math.ceil(s.length / 4);
@@ -85,6 +89,78 @@ function paragraphSplit(
   return merged;
 }
 
+function timestampToSeconds(timestamp: string): number {
+  const parts = timestamp.split(':').map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 2 || parts.some((part) => Number.isNaN(part))) return 0;
+  return parts[0] * 60 + parts[1];
+}
+
+function chunkAudioByTimestamp(
+  text: string,
+  chunkMinutes: number,
+): Array<{ text: string; metadata: Record<string, unknown> }> {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const parsed = lines
+    .map((line) => {
+      const match = line.match(/^\[(\d+:\d{2})\]\s*(.+)$/);
+      if (!match) return null;
+      const start = timestampToSeconds(match[1]);
+      return {
+        start,
+        marker: match[1],
+        text: match[2],
+      };
+    })
+    .filter((item): item is { start: number; marker: string; text: string } => item !== null);
+
+  if (parsed.length === 0) {
+    return [{
+      text,
+      metadata: {
+        timestamp_start: 0,
+        timestamp_end: 0,
+      },
+    }];
+  }
+
+  const chunkSizeSeconds = Math.max(1, chunkMinutes) * 60;
+  const chunks: Array<{ text: string; metadata: Record<string, unknown> }> = [];
+
+  let currentStart = parsed[0].start;
+  let currentEnd = parsed[0].start;
+  let currentLines: string[] = [];
+
+  const flush = () => {
+    if (currentLines.length === 0) return;
+    chunks.push({
+      text: currentLines.join('\n'),
+      metadata: {
+        timestamp_start: currentStart,
+        timestamp_end: currentEnd,
+      },
+    });
+    currentLines = [];
+  };
+
+  for (const segment of parsed) {
+    const wouldExceedWindow = segment.start - currentStart >= chunkSizeSeconds;
+    if (wouldExceedWindow && currentLines.length > 0) {
+      flush();
+      currentStart = segment.start;
+    }
+
+    currentEnd = segment.start;
+    currentLines.push(`[${segment.marker}] ${segment.text}`);
+  }
+
+  flush();
+  return chunks;
+}
+
 // ── Header detection ────────────────────────────────────────────────────────
 // A header is a short line that doesn't end with sentence punctuation
 function isHeader(line: string): boolean {
@@ -134,15 +210,31 @@ export async function semanticChunkText(
     targetMinTokens?: number;
     targetMaxTokens?: number;
     debug?: boolean;
+    metadata?: Record<string, unknown>;
   }
 ): Promise<Chunk[]> {
   const {
     targetMinTokens = 60,
     targetMaxTokens = 400,
     debug = false,
+    metadata,
   } = opts ?? {};
 
   const start = Date.now();
+
+  if (metadata?.type === 'audio') {
+    const chunkMinutesRaw = Number.parseInt(process.env.AUDIO_CHUNK_MINUTES ?? '2', 10);
+    const chunkMinutes = Number.isFinite(chunkMinutesRaw) && chunkMinutesRaw > 0 ? chunkMinutesRaw : 2;
+    const chunks = chunkAudioByTimestamp(text, chunkMinutes);
+    return chunks.map((chunk, idx) => ({
+      text: chunk.text,
+      index: idx,
+      metadata: {
+        ...metadata,
+        ...chunk.metadata,
+      },
+    }));
+  }
 
   // Step 1: split on headers
   const sections = splitIntoSections(text);
@@ -162,7 +254,7 @@ export async function semanticChunkText(
       const ms = Date.now() - start;
       console.log(`[debug] chunked ${chunks.length} chunks in ${ms}ms (heuristic, 0 embed calls)`);
     }
-    return chunks.map((t, idx) => ({ text: t, index: idx }));
+    return chunks.map((t, idx) => ({ text: t, index: idx, metadata }));
   }
 
   // Step 3: process each section
@@ -205,5 +297,5 @@ export async function semanticChunkText(
     );
   }
 
-  return merged.map((t, idx) => ({ text: t, index: idx }));
+  return merged.map((t, idx) => ({ text: t, index: idx, metadata }));
 }

@@ -11,3 +11,10 @@ export { generateGroundedAnswer } from './answer/generator';
 export { queryAnswer } from './answer/query';
 export type { QueryAnswerResult, GraphEdge, ConceptDetail } from './answer/query';
 export type { EvidenceBundle, EvidenceChunk, RetrievalLayer } from './types/evidence';
+export {
+	buildModel,
+	loadOrInitAssociativeMemory,
+	predictAssociativeScores,
+	trainAssociativeMemory,
+	getAssociativeStatus,
+} from './associative';

@@ -4,10 +4,20 @@ import path from 'path';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import * as cheerio from 'cheerio';
+import { AUDIO_EXTENSIONS, formatTranscriptWithTimestamps, parseAudio } from '../parser/audio';
+import { IMAGE_EXTENSIONS, parseImage } from '../parser/image';
+import { VIDEO_EXTENSIONS, parseVideo } from '../parser/video';
+import { embedImage } from '../embed';
+import { storeImageEmbedding } from '../db';
 
 const HTML_PRUNE_SELECTORS = ['script', 'style', 'nav', 'footer', 'header'];
 const URL_PRUNE_SELECTORS = ['script', 'style', 'nav', 'footer', 'header', 'aside'];
 const CONTENT_BLOCK_SELECTORS = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, pre';
+
+export interface ParsedDocument {
+  text: string;
+  metadata: Record<string, unknown>;
+}
 
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -203,27 +213,108 @@ export async function parseUrl(url: string): Promise<string> {
 }
 
 export async function parseFile(filePath: string): Promise<string> {
+  const parsed = await parseFileWithMetadata(filePath);
+  return parsed.text;
+}
+
+export async function parseFileWithMetadata(filePath: string): Promise<ParsedDocument> {
   const ext = path.extname(filePath).toLowerCase();
+
+  if (AUDIO_EXTENSIONS.includes(ext)) {
+    try {
+      const result = await parseAudio(filePath);
+      return {
+        text: formatTranscriptWithTimestamps(result),
+        metadata: { type: 'audio', duration: result.duration, language: result.language, source: filePath },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('faster-whisper')) {
+        console.error(
+          '❌ Audio ingestion requires faster-whisper. Install with:\n' +
+          '   pip install faster-whisper\n' +
+          '   Or use Docker where it is pre-installed.'
+        );
+      }
+      throw error;
+    }
+  }
+
+  if (IMAGE_EXTENSIONS.includes(ext)) {
+    const result = await parseImage(filePath);
+    const clipEmbedding = await embedImage(filePath);
+    if (clipEmbedding.length > 0) {
+      try {
+        await storeImageEmbedding(filePath, clipEmbedding, result.description, result.ocr_text);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`⚠️  Failed to store image embedding: ${message}`);
+      }
+    }
+
+    return {
+      text: result.description,
+      metadata: {
+        type: 'image',
+        image_path: filePath,
+        vision_model: result.model_used,
+        ocr_detected: Boolean(result.ocr_text),
+        ocr_text: result.ocr_text ?? '',
+        ocr_language: process.env.OCR_LANGUAGE ?? 'eng',
+        source: filePath,
+      },
+    };
+  }
+
+  if (VIDEO_EXTENSIONS.includes(ext)) {
+    console.log('🎬 Processing video (this may take several minutes)...');
+    const result = await parseVideo(filePath);
+    const frameOcrCount = result.frameDescriptions.filter((frame) => Boolean(frame.ocrText)).length;
+    return {
+      text: result.merged,
+      metadata: {
+        type: 'video',
+        duration: result.duration,
+        frame_count: result.frameDescriptions.length,
+        frame_ocr_count: frameOcrCount,
+        ocr_detected: frameOcrCount > 0,
+        ocr_language: process.env.OCR_LANGUAGE ?? 'eng',
+        source: filePath,
+      },
+    };
+  }
 
   switch (ext) {
     case '.txt':
     case '.md':
-      return fs.readFileSync(filePath, 'utf-8');
+      return {
+        text: fs.readFileSync(filePath, 'utf-8'),
+        metadata: { type: 'text', source: filePath },
+      };
 
     case '.html': {
       const html = fs.readFileSync(filePath, 'utf-8');
-      return parseHtmlString(html);
+      return {
+        text: parseHtmlString(html),
+        metadata: { type: 'html', source: filePath },
+      };
     }
 
     case '.pdf': {
       const buffer = fs.readFileSync(filePath);
       const data = await pdfParse(buffer);
-      return stripPdfNoise(cleanPdfText(data.text));
+      return {
+        text: stripPdfNoise(cleanPdfText(data.text)),
+        metadata: { type: 'pdf', source: filePath },
+      };
     }
 
     case '.docx': {
       const result = await mammoth.extractRawText({ path: filePath });
-      return result.value;
+      return {
+        text: result.value,
+        metadata: { type: 'docx', source: filePath },
+      };
     }
 
     default:
