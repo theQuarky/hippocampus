@@ -49,9 +49,9 @@ jobs:
         with:
           name: linux-installers
           path: |
-            installer/build/*.AppImage
-            installer/build/*.deb
-            installer/build/*.snap
+            installer/dist/*.AppImage
+            installer/dist/*.deb
+            installer/dist/*.snap
 
   # ── Windows native installer ───────────────────────────────────────────────
   build-windows:
@@ -81,7 +81,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: installer/build/*.exe
+          path: installer/dist/*.exe
 
   # ── macOS native installer ─────────────────────────────────────────────────
   build-mac:
@@ -116,7 +116,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mac-installer
-          path: installer/build/*.dmg
+          path: installer/dist/*.dmg
 
   # ── GitHub Release ─────────────────────────────────────────────────────────
   release:
@@ -148,12 +148,12 @@ jobs:
 
             **Linux / macOS:**
             ```bash
-            curl -fsSL https://github.com/yourusername/hippocampus/releases/latest/download/install.sh | bash
+            curl -fsSL https://github.com/theQuarky/hippocampus/releases/latest/download/install.sh | bash
             ```
 
             **Windows (PowerShell, run as Administrator):**
             ```powershell
-            irm https://github.com/yourusername/hippocampus/releases/latest/download/install.ps1 | iex
+            irm https://github.com/theQuarky/hippocampus/releases/latest/download/install.ps1 | iex
             ```
 
             ### Native installers (no Docker required)
