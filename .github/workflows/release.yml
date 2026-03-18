@@ -30,6 +30,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
 
       - name: Build main app (required by Electron)
         run: npm ci && npm run build
@@ -62,6 +64,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
 
       - name: Build main app (required by Electron)
         run: npm ci && npm run build
@@ -92,6 +96,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
 
       - name: Build main app (required by Electron)
         run: npm ci && npm run build
