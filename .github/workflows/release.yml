@@ -30,8 +30,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: installer/package-lock.json
 
       - name: Build main app (required by Electron)
         run: npm ci && npm run build
@@ -41,7 +39,7 @@ jobs:
 
       - name: Install installer deps
         working-directory: installer
-        run: npm ci
+        run: npm install
 
       - name: Build Linux installers
         working-directory: installer
@@ -64,8 +62,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: installer/package-lock.json
 
       - name: Build main app (required by Electron)
         run: npm ci && npm run build
@@ -76,7 +72,7 @@ jobs:
 
       - name: Install installer deps
         working-directory: installer
-        run: npm ci
+        run: npm install
 
       - name: Build Windows installer
         working-directory: installer
@@ -96,8 +92,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: installer/package-lock.json
 
       - name: Build main app (required by Electron)
         run: npm ci && npm run build
@@ -107,7 +101,7 @@ jobs:
 
       - name: Install installer deps
         working-directory: installer
-        run: npm ci
+        run: npm install
 
       - name: Build + notarize macOS installer
         working-directory: installer
