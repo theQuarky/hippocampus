@@ -1,0 +1,89 @@
+{
+  "name": "hippocampus-installer",
+  "version": "0.1.0",
+  "description": "Hippocampus — Local AI Memory System",
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "dev":         "concurrently \"tsc -w -p tsconfig.electron.json\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build":       "tsc -p tsconfig.electron.json && vite build",
+    "dist":        "npm run build && electron-builder",
+    "dist:win":    "npm run build && electron-builder --win",
+    "dist:mac":    "npm run build && electron-builder --mac",
+    "dist:linux":  "npm run build && electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-log":   "^5.1.2",
+    "electron-store": "^8.1.0"
+  },
+  "devDependencies": {
+    "@electron/notarize":    "^2.3.0",
+    "@types/react":          "^18.2.0",
+    "@types/react-dom":      "^18.2.0",
+    "@vitejs/plugin-react":  "^4.2.1",
+    "concurrently":          "^8.2.2",
+    "electron":              "^30.0.0",
+    "electron-builder":      "^24.13.3",
+    "react":                 "^18.2.0",
+    "react-dom":             "^18.2.0",
+    "typescript":            "^5.3.3",
+    "vite":                  "^5.2.0",
+    "wait-on":               "^7.2.0"
+  },
+  "build": {
+    "appId":       "com.hippocampus.app",
+    "productName": "Hippocampus",
+    "copyright":   "Copyright © 2026",
+    "icon":        "assets/icon",
+    "afterSign":   "scripts/notarize.js",
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "binaries/${os}/**/*"
+    ],
+    "extraResources": [
+      { "from": "binaries/${os}", "to": "binaries", "filter": ["**/*"] }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick":                  false,
+      "allowDirChange":            true,
+      "createDesktopShortcut":     true,
+      "createStartMenuShortcut":   true,
+      "installerIcon":             "assets/icon.ico",
+      "installerBanner":           "assets/banner.bmp",
+      "license":                   "LICENSE.txt"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements":        "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist"
+    },
+    "dmg": {
+      "background": "assets/dmg-background.png",
+      "icon":       "assets/icon.icns",
+      "iconSize":   80,
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "linux": {
+      "target":   ["AppImage", "deb", "snap"],
+      "icon":     "assets/icon.png",
+      "category": "Utility"
+    },
+    "deb": {
+      "depends": ["libnotify4", "libxtst6", "libnss3"]
+    },
+    "snap": {
+      "summary": "Local AI memory system — private, offline, open source"
+    }
+  }
+}

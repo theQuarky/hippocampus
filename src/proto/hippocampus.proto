@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package hippocampus;
+
+service Hippocampus {
+  rpc Ingest (IngestRequest) returns (IngestResponse);
+  rpc Query (QueryRequest) returns (QueryResponse);
+  rpc Health (HealthRequest) returns (HealthResponse);
+}
+
+message IngestRequest {
+  string source = 1;
+  string text = 2;
+  repeated string tags = 3;
+}
+
+message IngestResponse {
+  bool success = 1;
+  int32 chunks_stored = 2;
+  int32 chunks_skipped = 3;
+  int32 connections_seeded = 4;
+  string error = 5;
+}
+
+message QueryRequest {
+  string query = 1;
+  int32 top_k = 2;
+  int32 max_hops = 3;
+  repeated string relationship_filter = 4;
+  bool include_conflicts = 5;
+}
+
+message QueryResponse {
+  repeated Result results = 1;
+}
+
+message Result {
+  string text = 1;
+  string source = 2;
+  float score = 3;
+  string chunk_id = 4;
+  bool graph_boosted = 5;
+  repeated string path = 6;
+  repeated string conflicts = 7;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+  int32 total_chunks = 2;
+  int32 total_connections = 3;
+  int32 collections = 4;
+  string service_version = 5;
+}

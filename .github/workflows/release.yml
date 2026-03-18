@@ -1,0 +1,178 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  # ── Docker installer shell scripts ─────────────────────────────────────────
+  build-docker-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Package shell scripts
+        run: |
+          cd installer/scripts
+          zip ../../hippocampus-docker-installer.zip install.sh install.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-scripts
+          path: hippocampus-docker-installer.zip
+
+  # ── Linux native installer ─────────────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: installer/package-lock.json
+
+      - name: Build main app (required by Electron)
+        run: npm ci && npm run build
+
+      - name: Download bundled binaries
+        run: bash installer/scripts/bundle-binaries.sh linux
+
+      - name: Install installer deps
+        working-directory: installer
+        run: npm ci
+
+      - name: Build Linux installers
+        working-directory: installer
+        run: npm run dist:linux
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-installers
+          path: |
+            installer/build/*.AppImage
+            installer/build/*.deb
+            installer/build/*.snap
+
+  # ── Windows native installer ───────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: installer/package-lock.json
+
+      - name: Build main app (required by Electron)
+        run: npm ci && npm run build
+
+      - name: Download bundled binaries
+        shell: bash
+        run: bash installer/scripts/bundle-binaries.sh windows
+
+      - name: Install installer deps
+        working-directory: installer
+        run: npm ci
+
+      - name: Build Windows installer
+        working-directory: installer
+        run: npm run dist:win
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: installer/build/*.exe
+
+  # ── macOS native installer ─────────────────────────────────────────────────
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: installer/package-lock.json
+
+      - name: Build main app (required by Electron)
+        run: npm ci && npm run build
+
+      - name: Download bundled binaries
+        run: bash installer/scripts/bundle-binaries.sh macos
+
+      - name: Install installer deps
+        working-directory: installer
+        run: npm ci
+
+      - name: Build + notarize macOS installer
+        working-directory: installer
+        env:
+          APPLE_ID:           ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID:      ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK:           ${{ secrets.MAC_CERT_P12 }}
+          CSC_KEY_PASSWORD:   ${{ secrets.MAC_CERT_PASSWORD }}
+        run: npm run dist:mac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-installer
+          path: installer/build/*.dmg
+
+  # ── GitHub Release ─────────────────────────────────────────────────────────
+  release:
+    needs: [build-docker-scripts, build-linux, build-windows, build-mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/docker-scripts/*.zip
+            artifacts/linux-installers/*.AppImage
+            artifacts/linux-installers/*.deb
+            artifacts/linux-installers/*.snap
+            artifacts/windows-installer/*.exe
+            artifacts/mac-installer/*.dmg
+          body: |
+            ## Hippocampus ${{ github.ref_name }}
+
+            Local AI memory system — private, offline, open source.
+
+            ### Quick install (Docker)
+
+            **Linux / macOS:**
+            ```bash
+            curl -fsSL https://github.com/yourusername/hippocampus/releases/latest/download/install.sh | bash
+            ```
+
+            **Windows (PowerShell, run as Administrator):**
+            ```powershell
+            irm https://github.com/yourusername/hippocampus/releases/latest/download/install.ps1 | iex
+            ```
+
+            ### Native installers (no Docker required)
+
+            | Platform | File |
+            |----------|------|
+            | Windows  | `Hippocampus-Setup-${{ github.ref_name }}.exe` |
+            | macOS    | `Hippocampus-${{ github.ref_name }}.dmg` |
+            | Linux AppImage | `Hippocampus-${{ github.ref_name }}.AppImage` |
+            | Linux deb | `hippocampus_${{ github.ref_name }}_amd64.deb` |
+            | Linux snap | `hippocampus_${{ github.ref_name }}_amd64.snap` |
+
+            ---
+            > **macOS notarization** requires Apple Developer credentials stored as
+            > GitHub Actions secrets (`APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`,
+            > `MAC_CERT_P12`, `MAC_CERT_PASSWORD`). See `installer/scripts/notarize.js`.

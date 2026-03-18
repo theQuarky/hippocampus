@@ -1,50 +1,20 @@
-// src/index.ts
-import { initDB } from './db';
-import { ingest } from './ingest';
-import { retrieve } from './retrieve';
-
-async function main() {
-  await initDB();
-
-  const command = process.argv[2];
-  const argument = process.argv[3];
-
-  if (!command) {
-    console.log(`
-🧠 Hippocampus
-
-  Commands:
-    ingest <file>        Feed a document into memory
-    query  <question>    Retrieve relevant knowledge
-    `);
-    process.exit(0);
-  }
-
-  switch (command) {
-    case 'ingest': {
-      if (!argument) { console.error('Usage: ingest <file>'); process.exit(1); }
-      await ingest(argument);
-      break;
-    }
-
-    case 'query': {
-      if (!argument) { console.error('Usage: query <question>'); process.exit(1); }
-      const results = await retrieve(argument);
-      console.log(`\n🔍 Query: "${argument}"\n`);
-      results.forEach((r, i) => {
-        console.log(`── Result ${i + 1} (score: ${r.score.toFixed(4)}) [${r.source}]`);
-        console.log(`${r.text}\n`);
-      });
-      break;
-    }
-
-    default:
-      console.error(`Unknown command: ${command}`);
-      process.exit(1);
-  }
-}
-
-main().catch(err => {
-  console.error('❌', err.message);
-  process.exit(1);
-});
+// src/index.ts — Barrel file: re-exports public API for external consumers
+export { initDB, db } from './db';
+export { ingest, ingestText } from './ingest';
+export { retrieve, retrieveConcepts, retrieveByVector, expandWithConcepts, mergeChunks, rankChunks } from './retrieve';
+export type { Result, ConceptResult } from './retrieve';
+export { consolidateAll, abstractConcepts } from './consolidate';
+export { syncConceptEmbeddings } from './concepts/sync';
+export { embed } from './embed';
+export { buildContext } from './answer/context';
+export { generateGroundedAnswer } from './answer/generator';
+export { queryAnswer } from './answer/query';
+export type { QueryAnswerResult, GraphEdge, ConceptDetail } from './answer/query';
+export type { EvidenceBundle, EvidenceChunk, RetrievalLayer } from './types/evidence';
+export {
+	buildModel,
+	loadOrInitAssociativeMemory,
+	predictAssociativeScores,
+	trainAssociativeMemory,
+	getAssociativeStatus,
+} from './associative';
