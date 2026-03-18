@@ -41,7 +41,7 @@ jobs:
 
       - name: Install installer deps
         working-directory: installer
-        run: npm install
+        run: npm ci
 
       - name: Build Linux installers
         working-directory: installer
@@ -76,7 +76,7 @@ jobs:
 
       - name: Install installer deps
         working-directory: installer
-        run: npm install
+        run: npm ci
 
       - name: Build Windows installer
         working-directory: installer
@@ -107,7 +107,7 @@ jobs:
 
       - name: Install installer deps
         working-directory: installer
-        run: npm install
+        run: npm ci
 
       - name: Build + notarize macOS installer
         working-directory: installer
