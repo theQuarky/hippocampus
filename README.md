@@ -1,176 +1,216 @@
 # 🧠 Hippocampus
 
-Hippocampus is a **local semantic memory system** for intelligent agents.
-It ingests documents, builds a vector + graph index, and uses a local LLM
-to answer questions grounded in that memory.
+Hippocampus is a **local AI memory system** — like Google NotebookLM, but private, offline,
+and open source. Ingest documents, audio, images, and video; then query your personal
+knowledge base using natural language.
 
-This README is intentionally concise so you can get in, run it, and
-integrate it quickly. See the source for deeper internals.
+Everything runs on your machine. No cloud. No API keys.
 
 ---
 
 ## Features
 
-- Ingest PDFs, DOCX, HTML, text, and URLs
-- Local embeddings (no external API calls)
-- Qdrant vector search + graph connections
-- Optional concept layer (when data is populated)
-- Grounded answers with explicit evidence & scores
-- HTTP and gRPC APIs
-- CLI + optional dashboard
+- **Multi-modal ingestion** — PDF, DOCX, HTML, URLs, audio (Whisper transcription), images (vision LLM), video (keyframe extraction + captioning)
+- **Local embeddings** — `nomic-embed-text-v1` (768d) via `@xenova/transformers`, CPU-only
+- **Hybrid retrieval** — vector search (Qdrant) + graph traversal (SQLite) + concept layer + Hebbian associative memory
+- **Grounded answers** — LLM answers backed by explicit evidence, scores, and sources
+- **Audio overviews** — generate spoken summaries (monologue / dialogue / interview) with Piper TTS
+- **Multi-database** — isolated memory databases, switch with `--db <name>`
+- **HTTP + gRPC APIs** — for agent and service integrations
+- **React dashboard** — chat, library, graph, timeline, concepts, and ingest views
+- **One-command installers** — native Electron app (Windows/macOS/Linux) or Docker
 
 ---
 
-## Architecture
+## Install
 
+### Option A — Native installer (recommended, no Docker required)
+
+Download the installer for your platform from the [latest release](https://github.com/yourusername/hippocampus/releases/latest):
+
+| Platform | File |
+|----------|------|
+| Windows | `Hippocampus-Setup-*.exe` |
+| macOS | `Hippocampus-*.dmg` |
+| Linux | `Hippocampus-*.AppImage` / `.deb` / `.snap` |
+
+The installer bundles Qdrant and Ollama — no separate installs needed. A setup wizard
+walks through choosing an install location and downloading AI models (~4 GB first run).
+
+After install, Hippocampus runs in your system tray and the dashboard opens at
+`http://localhost:3001`.
+
+**CLI (installed automatically):**
+```bash
+hippocampus ingest /path/to/file.pdf
+hippocampus query-answer "What does the document say about X?"
 ```
-┌───────────────┐     ┌───────────────┐     ┌───────────────┐
-│   Documents   │────▶│    Ingest     │────▶│   Qdrant      │
-│  PDF/URL/TXT  │     │  Parse/Chunk  │     │  Vector Store  │
-└───────────────┘     │  Embed/Store  │     └───────┬───────┘
-                      └───────┬───────┘             │
-                              │                     │
-                      ┌───────▼───────┐     ┌───────▼───────┐
-                      │    SQLite     │     │   Retrieval   │
-                      │   Metadata    │◀───▶│  Vector+Graph │
-                      │  Connections  │     │  +Concepts    │
-                      └───────────────┘     └───────┬───────┘
-                                                    │
-                                            ┌───────▼───────┐
-                                            │   Answer Gen  │
-                                            │  Ollama LLM   │
-                                            │  (grounded)   │
-                                            └───────────────┘
+
+---
+
+### Option B — Docker installer script
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://github.com/yourusername/hippocampus/releases/latest/download/install.sh | bash
 ```
 
----
+**Windows (PowerShell):**
+```powershell
+irm https://github.com/yourusername/hippocampus/releases/latest/download/install.ps1 | iex
+```
 
-## Prerequisites
-
-| Dependency | Version | Purpose |
-|---|---|---|
-| **Node.js** | 22+ | Runtime |
-| **Qdrant** | latest | Vector storage and similarity search |
-| **Ollama** | latest | Local LLM for answer generation and consolidation |
-| **Docker** *(optional)* | 24+ | Containerised deployment |
+The script installs Docker (if missing on Linux), pulls all images, downloads AI models,
+and adds the `hippocampus` CLI wrapper to your PATH. Safe to run twice — idempotent.
 
 ---
 
-## Quick Start
-
-### Docker (recommended)
+### Option C — Docker Compose (from source)
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-org/hippocampus.git
+git clone https://github.com/yourusername/hippocampus.git
 cd hippocampus
 
-# 2. Start all services (Qdrant, Ollama, Hippocampus)
+# Start all services
 docker compose up -d --build
 
-# 3. Pull the default LLM model into Ollama
+# Download AI models into Ollama
 docker compose --profile setup up ollama-pull
 
-# 4. Ingest a document
+# Ingest a file
 docker compose -f docker-compose.yml -f docker-compose.cli.yml \
-  run --rm hippocampus dist/cli/cli.js ingest /uploads/my-doc.pdf
+  run --rm hippocampus ingest /uploads/my-doc.pdf
 
-# 5. Query
+# Ask a question
 docker compose -f docker-compose.yml -f docker-compose.cli.yml \
-  run --rm hippocampus dist/cli/cli.js query-answer "What does the document say about X?"
+  run --rm hippocampus query-answer "What is memory consolidation?"
 ```
 
-**Ports exposed:**
+---
+
+### Option D — Local development
+
+```bash
+# 1. Start Qdrant and Ollama
+docker compose up -d qdrant ollama
+ollama pull phi3:mini
+ollama pull moondream
+
+# 2. Install and build
+npm install
+npm run build
+
+# 3. Run
+npm run ingest -- ./path/to/document.pdf
+npm run query-answer -- "What is the hippocampus?"
+```
+
+---
+
+## Ports
 
 | Service | Port |
-|---|---|
+|---------|------|
 | Hippocampus HTTP | `3001` |
 | Hippocampus gRPC | `50051` |
 | Qdrant HTTP | `6333` |
 | Qdrant gRPC | `6334` |
 | Ollama | `11434` |
 
-### Local development
+---
 
-```bash
-# 1. Start Qdrant and Ollama (or use Docker for just these)
-docker compose up -d qdrant ollama
+## Architecture
 
-# 2. Pull the LLM model
-ollama pull phi3:mini
-
-# 3. Install dependencies
-npm install
-
-# 4. Ingest a document
-npm run ingest -- ./path/to/document.pdf
-
-# 5. Ask a question
-npm run query-answer -- "What is the hippocampus?"
+```
+┌────────────────────────────────────────────────────────────────┐
+│                          Ingest                                │
+│  PDF/DOCX/HTML/URL  ──▶  parse  ──▶  chunk  ──▶  embed        │
+│  Audio (MP3/WAV)    ──▶  Whisper transcription ──▶  chunk      │
+│  Image (PNG/JPG)    ──▶  moondream caption ──▶  embed          │
+│  Video (MP4/MKV)    ──▶  keyframes + audio track ──▶  embed    │
+└────────────────────────────────┬───────────────────────────────┘
+                                 │
+               ┌─────────────────▼──────────────────┐
+               │            Storage                  │
+               │  Qdrant (vectors) + SQLite          │
+               │  chunks · connections · concepts    │
+               │  co-access events (Hebbian)         │
+               └─────────────────┬──────────────────┘
+                                 │
+┌────────────────────────────────▼───────────────────────────────┐
+│                         Retrieval                              │
+│  embed(query) → vector search → graph expansion               │
+│  → concept expansion → associative MLP boost                  │
+│  → re-rank → filter → top-k                                   │
+└────────────────────────────────┬───────────────────────────────┘
+                                 │
+               ┌─────────────────▼──────────────────┐
+               │         Answer / Overview           │
+               │  Grounded LLM answer (Ollama)       │
+               │  Audio overview (Piper TTS)         │
+               └────────────────────────────────────┘
 ```
 
 ---
 
 ## CLI Reference
 
-All CLI commands run via `ts-node src/cli/cli.ts <command>` (dev) or
-`node dist/cli/cli.js <command>` (production).
+```bash
+# Dev
+ts-node src/cli/cli.ts <command> [args]
 
-| Command | Usage | Description |
-|---|---|---|
-| `ingest` | `npm run ingest -- <file\|url>` | Parse, chunk, embed, and store a single document or URL |
-| `ingest-dir` | `npm run ingest-dir -- <folder>` | Recursively ingest all supported files in a directory |
-| `watch` | `npm run watch -- <folder>` | Watch a folder for new/changed files and auto-ingest |
-| `query` | `npm run query -- "<question>"` | Retrieve relevant chunks by semantic similarity |
-| `query-answer` | `npm run query-answer -- "<question>"` | Retrieve chunks **and** generate a grounded LLM answer |
-| `consolidate` | `npm run consolidate` | Type weak connections in the graph |
-| `concepts` | `npm run concepts` | Build concept abstractions and print all concepts |
-| `sync-concepts` | `npm run dev -- sync-concepts` | Sync concept embeddings to Qdrant |
-| `benchmark` | `npm run benchmark` | Run benchmark on fixed queries |
-
-### query-answer output
-
+# Production / after install
+hippocampus <command> [args]
+node dist/cli/cli.js <command> [args]
 ```
-Answer:
-The hippocampus is a region of the brain that is part of the limbic system...
 
-Concepts Used:                        # only when INCLUDE_CONCEPTS=true and data exists
-  * memory  (id: abc123, confidence: 0.92)
+All commands accept `--db <name>` to target a specific memory database.
 
-Evidence Chunks:
-  [1] https://en.wikipedia.org/wiki/Hippocampus (score 0.67) [vector]
-      The hippocampus is a major component of the brain...
+| Command | Example | Description |
+|---------|---------|-------------|
+| `ingest` | `hippocampus ingest file.pdf` | Parse, chunk, embed, and store a document or URL |
+| `ingest-dir` | `hippocampus ingest-dir ./docs` | Recursively ingest a folder |
+| `watch` | `hippocampus watch ./docs` | Watch a folder and auto-ingest on change |
+| `query` | `hippocampus query "what is X?"` | Retrieve relevant chunks |
+| `query-answer` | `hippocampus query-answer "what is X?"` | Retrieve + generate grounded answer |
+| `overview` | `hippocampus overview "topic" --format dialogue` | Generate a spoken audio overview |
+| `consolidate` | `hippocampus consolidate` | Type weak connections in the knowledge graph |
+| `concepts` | `hippocampus concepts` | Build concept abstractions |
+| `sync-concepts` | `hippocampus sync-concepts` | Sync concept embeddings to Qdrant |
+| `benchmark` | `hippocampus benchmark` | Run benchmark on fixed queries |
 
-  [2] Neuroscience.pdf (score 0.67) [vector]
-      Hippocampus — widespread projections from association neocortex...
+### `overview` formats
 
-Graph Connections:
-  abc123 -> def456  [related_to] (w: 0.30)
-```
+| Flag | Output |
+|------|--------|
+| `--format monologue` | Single-narrator spoken summary (default) |
+| `--format dialogue` | Two-voice conversation exploring the topic |
+| `--format interview` | Q&A interview format |
+
+Audio is saved to `$OVERVIEWS_DIR` (default: `data/overviews/`) as `.wav`.
 
 ---
 
 ## API Reference
 
-### HTTP endpoints
-
-The HTTP server listens on port `3001` by default.
+### HTTP — `http://localhost:3001`
 
 | Method | Path | Description |
-|---|---|---|
+|--------|------|-------------|
+| `GET` | `/health` | Server health + component status |
+| `GET` | `/api/overview` | System overview stats |
 | `POST` | `/api/query` | Retrieve relevant chunks |
 | `POST` | `/api/query-answer` | Retrieve + generate grounded answer |
 | `POST` | `/api/ingest/file` | Upload and ingest a file (multipart) |
 | `POST` | `/api/ingest/url` | Ingest a URL |
-| `GET`  | `/api/stats` | Collection statistics |
-| `GET`  | `/api/chunks` | List stored chunks |
-| `GET`  | `/api/graph` | Graph connection data |
-| `GET`  | `/api/concepts` | List concepts |
-| `GET`  | `/api/recent-ingests` | Recent ingest activity |
-| `GET`  | `/api/ingest/progress` | SSE stream of ingest progress |
+| `GET` | `/api/stats` | Collection statistics |
+| `GET` | `/api/chunks` | List stored chunks |
+| `GET` | `/api/graph` | Graph connection data |
+| `GET` | `/api/concepts` | List concepts |
+| `GET` | `/api/recent-ingests` | Recent ingest events |
+| `GET` | `/api/ingest/progress` | SSE stream of ingest progress |
 
 **Example — query-answer:**
-
 ```bash
 curl -X POST http://localhost:3001/api/query-answer \
   -H 'Content-Type: application/json' \
@@ -178,7 +218,6 @@ curl -X POST http://localhost:3001/api/query-answer \
 ```
 
 **Response:**
-
 ```json
 {
   "answer": "Memory consolidation is a biological process...",
@@ -192,28 +231,22 @@ curl -X POST http://localhost:3001/api/query-answer \
     }
   ],
   "concepts_used": [],
-  "concepts_detail": [],
   "graph_edges": [
-    {
-      "source_chunk": "abc-123",
-      "target_chunk": "def-456",
-      "relationship": "related_to",
-      "weight": 0.30
-    }
+    { "source_chunk": "abc-123", "target_chunk": "def-456",
+      "relationship": "related_to", "weight": 0.30 }
   ],
   "sources": ["https://en.wikipedia.org/wiki/Memory_consolidation"]
 }
 ```
 
-### gRPC service
+### gRPC — `localhost:50051`
 
-The gRPC server listens on port `50051` by default.  The service is
-defined in `src/proto/hippocampus.proto`:
+Defined in [src/proto/hippocampus.proto](src/proto/hippocampus.proto):
 
 ```protobuf
 service Hippocampus {
-  rpc Ingest (IngestRequest) returns (IngestResponse);
-  rpc Query  (QueryRequest)  returns (QueryResponse);
+  rpc Ingest (IngestRequest)  returns (IngestResponse);
+  rpc Query  (QueryRequest)   returns (QueryResponse);
   rpc Health (HealthRequest)  returns (HealthResponse);
 }
 ```
@@ -222,93 +255,109 @@ service Hippocampus {
 
 ## Configuration
 
-Every parameter is configurable via environment variables.  Defaults are
-chosen for CPU-only hardware running `phi3:mini`.
+All parameters are set via environment variables. Defaults suit CPU-only hardware with `phi3:mini`.
 
 ### Embedding
 
 | Variable | Default | Description |
-|---|---|---|
-| `EMBED_MODEL` | `Xenova/all-MiniLM-L6-v2` | HuggingFace embedding model |
-| `EMBED_DIMS` | `384` | Embedding vector dimensions |
-| `EMBED_MAX_TOKENS` | `512` | Max tokens per chunk for embedding |
-| `EMBED_BATCH_SIZE` | `8` | Batch size for embedding calls |
+|----------|---------|-------------|
+| `EMBED_MODEL` | `nomic-ai/nomic-embed-text-v1` | HuggingFace embedding model |
+| `EMBED_DIMS` | `768` | Vector dimensions (must match model) |
+| `EMBED_MAX_TOKENS` | `512` | Max tokens per chunk |
+| `EMBED_BATCH_SIZE` | `8` | Embedding batch size |
 
-### Qdrant
+### Storage
 
 | Variable | Default | Description |
-|---|---|---|
+|----------|---------|-------------|
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant server URL |
-| `QDRANT_COLLECTION` | `hippocampus` | Primary collection name |
+| `QDRANT_COLLECTION` | `hippocampus` | Primary vector collection |
+| `DB_PATH` | `./hippocampus.db` | SQLite database path |
 
 ### LLM / Ollama
 
 | Variable | Default | Description |
-|---|---|---|
-| `OLLAMA_MODEL` | `phi3:mini` | Model for consolidation and chunking |
-| `ANSWER_MODEL` | `phi3:mini` | Model for answer generation (falls back to `OLLAMA_MODEL`) |
+|----------|---------|-------------|
+| `OLLAMA_URL` | `http://localhost:11434` | Ollama server URL |
+| `OLLAMA_MODEL` | `phi3:mini` | Model for consolidation / chunking |
+| `ANSWER_MODEL` | `phi3:mini` | Model for answer generation |
+| `VISION_MODEL` | `moondream` | Vision model for image/video captions |
+| `OLLAMA_CONCURRENCY` | `8` | Max concurrent Ollama requests |
 
-### Grounded answer pipeline
-
-| Variable | Default | Description |
-|---|---|---|
-| `ENABLE_GROUNDED_ANSWERS` | `true` | Enable/disable the answer generation pipeline |
-| `MAX_CONTEXT_TOKENS` | `500` | Token budget for context sent to the LLM |
-| `CONTEXT_TOP_K` | `3` | Number of chunks retrieved from Qdrant |
-| `MAX_EVIDENCE_CHUNKS` | `5` | Max evidence chunks in the response |
-| `MAX_OUTPUT_TOKENS` | `128` | Max tokens the LLM may generate |
-| `LLM_TIMEOUT_MS` | `120000` | Timeout for LLM generation (ms) |
-
-### Concept retrieval
+### Audio
 
 | Variable | Default | Description |
-|---|---|---|
-| `INCLUDE_CONCEPTS` | `false` | Include concept-layer in retrieval |
+|----------|---------|-------------|
+| `WHISPER_MODEL` | `small` | Whisper model for audio transcription |
+| `AUDIO_CHUNK_MINUTES` | `2` | Duration of audio chunks |
+| `PIPER_VOICES_DIR` | `./piper-voices` | Path to Piper TTS voice files |
+| `OVERVIEWS_DIR` | `./data/overviews` | Output directory for audio overviews |
+
+### Video
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KEYFRAME_INTERVAL` | `60` | Seconds between extracted keyframes |
+
+### Retrieval
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `INCLUDE_CONCEPTS` | `false` | Include concept layer in retrieval |
 | `CONCEPT_BOOST` | `0.08` | Score boost for concept-linked chunks |
-| `CONCEPT_TOP_K` | `3` | Number of concepts to retrieve |
-| `CONCEPT_MIN_SCORE` | `0.45` | Minimum similarity for concept match |
+| `CONCEPT_TOP_K` | `3` | Concepts to retrieve |
+| `CONCEPT_MIN_SCORE` | `0.45` | Minimum concept similarity |
 
 ### Chunking
 
 | Variable | Default | Description |
-|---|---|---|
-| `CHUNK_STRATEGY` | `token` | Chunking strategy: `token`, `fast`, or `llm` |
-| `CHUNK_TARGET_MIN_TOKENS` | `350` | Minimum tokens per chunk |
-| `CHUNK_TARGET_MAX_TOKENS` | `500` | Maximum tokens per chunk |
-| `CHUNK_OVERLAP_TOKENS` | `40` | Token overlap between adjacent chunks |
+|----------|---------|-------------|
+| `CHUNK_STRATEGY` | `token` | `token` (default), `fast`, or `llm` |
+| `CHUNK_TARGET_MIN_TOKENS` | `350` | Min tokens per chunk |
+| `CHUNK_TARGET_MAX_TOKENS` | `500` | Max tokens per chunk |
+| `CHUNK_OVERLAP_TOKENS` | `40` | Overlap between adjacent chunks |
+
+### Grounded answers
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENABLE_GROUNDED_ANSWERS` | `true` | Enable LLM answer generation |
+| `MAX_CONTEXT_TOKENS` | `500` | Token budget for context |
+| `CONTEXT_TOP_K` | `3` | Chunks retrieved from Qdrant |
+| `MAX_EVIDENCE_CHUNKS` | `5` | Max chunks in response |
+| `MAX_OUTPUT_TOKENS` | `128` | Max LLM output tokens |
+| `LLM_TIMEOUT_MS` | `120000` | LLM generation timeout (ms) |
 
 ### Feature toggles
 
 | Variable | Default | Description |
-|---|---|---|
+|----------|---------|-------------|
 | `ENABLE_LEARNING_WEIGHTS` | `true` | Dynamic connection weight learning |
-| `ENABLE_CONCEPT_VALIDATION` | `true` | LLM self-validation of extracted concepts |
-| `DEBUG_PERF` | `false` | Print performance timing logs |
-| `DEBUG_CHUNKS` | `false` | Print chunk-level debug logs |
-
-### Consolidation
-
-| Variable | Default | Description |
-|---|---|---|
-| `CONSOLIDATION_BATCH_SIZE` | `10` | Connections per consolidation batch |
-| `CONSOLIDATION_INTERVAL_MS` | `30000` | Interval between consolidation runs (ms) |
+| `ENABLE_CONCEPT_VALIDATION` | `true` | LLM self-validation of concepts |
+| `DEBUG_PERF` | `false` | Performance timing logs |
+| `DEBUG_CHUNKS` | `false` | Chunk-level debug logs |
 
 ---
 
 ## Dashboard
 
-A React + Vite dashboard for browsing memory, running queries, and
-monitoring ingestion.
+A React + Vite dashboard at `http://localhost:3001`.
+
+| View | Description |
+|------|-------------|
+| Chat | Conversational query-answer interface |
+| Library | Browse all ingested chunks with search and filters |
+| Graph | Interactive knowledge graph visualization |
+| Timeline | Chronological ingest history |
+| Concepts | Concept map and abstractions |
+| Ingest | Upload files or URLs and monitor progress |
 
 ```bash
-# Start the dashboard dev server
+# Dev server (hot reload)
 npm run dashboard
-
-# Or from the dashboard directory
+# or
 cd dashboard && npm run dev
 ```
-
-The dashboard connects to the HTTP API on port `3001`.
 
 ---
 
@@ -317,60 +366,65 @@ The dashboard connects to the HTTP API on port `3001`.
 ```
 hippocampus/
 ├── src/
-│   ├── index.ts              # Barrel file — public API re-exports
-│   ├── config.ts             # All configurable parameters
+│   ├── index.ts                  # Barrel — public API re-exports
+│   ├── config.ts                 # All env-var configuration
+│   ├── associative.ts            # Hebbian associative memory (MLP)
 │   ├── cli/
-│   │   ├── cli.ts            # CLI entry point and arg dispatch
-│   │   └── commands.ts       # CLI command implementations
+│   │   ├── cli.ts                # CLI entry point + arg dispatch
+│   │   └── commands.ts           # CLI command implementations
 │   ├── answer/
-│   │   ├── index.ts          # Barrel re-exports
-│   │   ├── generator.ts      # LLM answer generation with timeout
-│   │   ├── query.ts          # Full query-answer pipeline
-│   │   └── context.ts        # Token-budgeted context builder
+│   │   └── generator.ts          # Grounded LLM answer generation
+│   ├── audio/
+│   │   ├── overview.ts           # Audio overview orchestration
+│   │   ├── scriptWriter.ts       # LLM script generation
+│   │   └── tts.ts                # Piper TTS synthesis
+│   ├── parser/
+│   │   ├── audio.ts              # Whisper audio transcription
+│   │   ├── image.ts              # Vision LLM image captioning
+│   │   └── video.ts              # Video keyframe + audio extraction
 │   ├── server/
-│   │   ├── index.ts          # Server startup (gRPC + HTTP)
-│   │   ├── httpServer.ts     # HTTP dispatch
-│   │   ├── grpc.ts           # gRPC handlers
-│   │   ├── helpers.ts        # Shared HTTP utilities
-│   │   ├── sse.ts            # Server-Sent Events helper
+│   │   ├── index.ts              # Server startup (gRPC + HTTP)
+│   │   ├── httpServer.ts         # HTTP dispatch
+│   │   ├── grpc.ts               # gRPC handlers
+│   │   ├── helpers.ts            # Shared HTTP utilities
 │   │   └── routes/
 │   │       ├── queryRoute.ts
 │   │       ├── healthRoute.ts
-│   │       └── ingestRoute.ts
+│   │       └── overviewRoute.ts
 │   ├── ingest/
-│   │   ├── index.ts          # Ingest orchestration
-│   │   ├── parser.ts         # PDF / DOCX / HTML / URL parsing
-│   │   ├── filters.ts        # Content filters
+│   │   ├── index.ts              # Ingest orchestration
+│   │   ├── parser.ts             # PDF / DOCX / HTML / URL parsing
 │   │   └── chunking/
-│   │       ├── token.ts      # Tokenizer-based chunking
-│   │       ├── segment.ts    # Heuristic segmentation
-│   │       ├── semantic.ts   # LLM-driven semantic chunking
-│   │       └── llm.ts        # LLM chunking helpers
+│   │       └── semantic.ts       # LLM-driven semantic chunking
 │   ├── embed/
-│   │   └── index.ts          # Embedding via Xenova/transformers
+│   │   └── index.ts              # ONNX embeddings (CPU)
 │   ├── retrieve/
-│   │   └── index.ts          # Vector + graph + concept retrieval
+│   │   └── index.ts              # Vector + graph + concept + associative retrieval
 │   ├── consolidate/
-│   │   ├── index.ts          # Consolidation worker
-│   │   ├── classify.ts       # Connection classification
-│   │   ├── concepts.ts       # Concept extraction
-│   │   ├── weights.ts        # Dynamic weight learning
-│   │   └── helpers.ts        # Consolidation utilities
-│   ├── concepts/
-│   │   └── sync.ts           # Sync concept embeddings to Qdrant
+│   │   ├── index.ts              # Consolidation worker
+│   │   ├── classify.ts           # Connection classification
+│   │   ├── cluster.ts            # Concept clustering
+│   │   ├── concepts.ts           # Concept extraction
+│   │   └── weights.ts            # Dynamic weight learning
 │   ├── db/
-│   │   └── index.ts          # SQLite + Qdrant initialization
-│   ├── types/
-│   │   └── evidence.ts       # Evidence & explanation types
+│   │   └── index.ts              # Qdrant + SQLite init, multi-DB support
 │   ├── proto/
-│   │   └── hippocampus.proto # gRPC service definition
-│   ├── tests/
-│   │   └── integration.test.ts
-│   └── tools/
-│       └── benchmark.ts
-├── dashboard/                 # React + Vite dashboard
-├── data/                      # Runtime data (Qdrant, Ollama, SQLite)
-├── uploads/                   # File upload staging
+│   │   └── hippocampus.proto
+│   └── tests/
+│       ├── integration.test.ts
+│       └── retrieval.test.ts
+├── dashboard/                     # React + Vite dashboard
+│   └── src/
+│       ├── views/                 # Chat, Library, Graph, Timeline, Concepts, Ingest
+│       └── components/            # AudioOverviewPanel, ChunkPopover, MiniSparkline, …
+├── installer/                     # Cross-platform installer
+│   ├── electron/                  # Electron main process (main.ts, preload.ts, tray.ts)
+│   ├── wizard/                    # 5-step React installer wizard
+│   ├── scripts/                   # install.sh, install.ps1, bundle-binaries.sh
+│   └── package.json               # electron-builder config
+├── .github/
+│   └── workflows/
+│       └── release.yml            # CI/CD: builds all installers on git tag
 ├── docker-compose.yml
 ├── docker-compose.cli.yml
 ├── Dockerfile
@@ -382,68 +436,81 @@ hippocampus/
 
 ## How It Works
 
-### Ingest
+### Ingest pipeline
 
-1. **Parse** — Extract text from PDF (`pdf-parse`), DOCX (`mammoth`),
-   HTML/URLs (`cheerio`), or plain text.
-2. **Chunk** — Split into overlapping chunks using one of three strategies:
-   token-based (default), heuristic (`fast`), or LLM-driven (`llm`).
-3. **Embed** — Generate 384-dimensional vectors with `all-MiniLM-L6-v2`
-   running locally via `@xenova/transformers`.
-4. **Store** — Write vectors to Qdrant and metadata (chunk text, source,
-   checksums) to SQLite.
-5. **Connect** — Seed initial graph connections between chunks from the
-   same document based on proximity.
+1. **Parse** — text from PDF (`pdf-parse`), DOCX (`mammoth`), HTML/URLs (`cheerio`); audio transcribed by Whisper; images captioned by `moondream`; video split into keyframes + audio track then processed by both.
+2. **Chunk** — split into overlapping chunks with `token` (default), `fast`, or `llm` strategy.
+3. **Embed** — 768-dimensional vectors via `nomic-embed-text-v1` on CPU.
+4. **Store** — vectors to Qdrant, metadata + connections to SQLite.
+5. **Connect** — seed proximity-based graph edges between chunks from the same document.
 
-### Retrieval
+### Retrieval pipeline
 
-1. **Vector search** — Embed the query and retrieve top-k similar chunks
-   from Qdrant.
-2. **Concept expansion** *(optional)* — Retrieve matching concepts and
-   expand the result set with concept-member chunks.
-3. **Graph boost** — Look up graph connections between retrieved chunks in
-   SQLite and boost scores for connected pairs.
-4. **Merge & rank** — Deduplicate, merge scores, and rank by final
-   similarity.
+```
+embed(query)
+  → Qdrant vector search (top-20)
+  → graph expansion (GRAPH_BOOST_FACTOR=0.05, max 2 hops)
+  → concept expansion (if INCLUDE_CONCEPTS)
+  → associative MLP boost (Hebbian co-access patterns)
+  → merge + re-rank
+  → filter (MIN_SCORE=0.40)
+  → top-5
+  → update access_count
+```
 
-### Grounded Answer Generation
+### Grounded answer generation
 
-1. **Build context** — Select the highest-scored chunks that fit within
-   the token budget (`MAX_CONTEXT_TOKENS`).
-2. **Construct prompt** — Wrap the question and context in a strict
-   grounding prompt: *"Answer using ONLY the context above."*
-3. **Generate** — Call Ollama with `Promise.race` against a configurable
-   timeout (`LLM_TIMEOUT_MS`).  A parallel model warmup runs during
-   embed + retrieve to avoid cold-start penalty.
-4. **Fallback** — If the LLM times out or errors, return a safe fallback
-   message while still providing the retrieved evidence.
+1. **Build context** — select highest-scored chunks within token budget.
+2. **Prompt** — strict grounding: *"Answer using ONLY the context above."*
+3. **Generate** — Ollama with timeout; model warmup runs in parallel during embed+retrieve.
+4. **Fallback** — on timeout/error, returns evidence with a safe fallback message.
 
-### Explainability Contract
+### Audio overviews
 
-Every `query-answer` response includes:
+1. **Retrieve** — semantic search across the knowledge base for the topic.
+2. **Script** — LLM generates a spoken script in the chosen format (monologue/dialogue/interview).
+3. **Synthesise** — Piper TTS converts script to `.wav`, saved to `OVERVIEWS_DIR`.
 
-| Field | Description |
-|---|---|
-| `evidence` | Top chunks with `chunk_id`, `text`, `source`, `score`, `retrieval_layer` |
-| `graph_edges` | Connections between evidence chunks: `source_chunk → target_chunk [relationship] (weight)` |
-| `concepts_detail` | Matched concepts with `concept_id`, `label`, `confidence` |
-| `sources` | Deduplicated list of source documents |
+### Background consolidation
 
-If the evidence is insufficient, the LLM responds:
-*"The available memory does not contain enough information."*
+Runs every 30 seconds:
+1. **Classify** weak edges — LLM assigns relationship types (`supports`, `contradicts`, `related_to`, etc.)
+2. **Update weights** — dynamic Hebbian-style weight decay and reinforcement.
+3. **Extract concepts** — cluster semantically close chunks into named concept nodes.
+
+---
+
+## Release Pipeline
+
+Triggered on any `git tag v*`:
+
+| Job | Runner | Output |
+|-----|--------|--------|
+| `build-docker-scripts` | ubuntu | `hippocampus-docker-installer.zip` |
+| `build-linux` | ubuntu | `.AppImage`, `.deb`, `.snap` |
+| `build-windows` | windows-latest | `.exe` (NSIS) |
+| `build-mac` | macos-latest | `.dmg` (notarized) |
+| `release` | ubuntu | GitHub Release with all artifacts |
+
+**macOS notarization** requires GitHub Actions secrets:
+`APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`, `MAC_CERT_P12`, `MAC_CERT_PASSWORD`.
+See [installer/scripts/notarize.js](installer/scripts/notarize.js).
 
 ---
 
 ## Testing
 
 ```bash
-# Run integration tests
+# Integration tests
 npm test
 
-# Run benchmark suite
+# Retrieval-specific tests
+npx ts-node src/tests/retrieval.test.ts
+
+# Benchmark
 npm run benchmark
 
-# TypeScript type-check (no emit)
+# TypeScript check
 npx tsc --noEmit
 ```
 
