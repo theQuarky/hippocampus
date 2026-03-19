@@ -64,7 +64,6 @@ jobs:
           path: |
             installer/dist/**/*.AppImage
             installer/dist/**/*.deb
-            installer/dist/**/*.snap
           if-no-files-found: error
 
   build-windows:
@@ -160,9 +159,6 @@ jobs:
       - name: Show downloaded artifacts
         run: find artifacts -type f | sort
 
-      - name: Install snapcraft
-        run: sudo snap install snapcraft --classic
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -170,7 +166,6 @@ jobs:
             artifacts/docker-scripts/*.zip
             artifacts/linux-installers/**/*.AppImage
             artifacts/linux-installers/**/*.deb
-            artifacts/linux-installers/**/*.snap
             artifacts/windows-installer/**/*.exe
             artifacts/mac-installer/**/*.dmg
           body: |
@@ -197,4 +192,4 @@ jobs:
             ### Notes
 
             - macOS notarization requires Apple credentials in GitHub Actions secrets.
-            - Linux outputs may include AppImage, deb, and snap depending on your electron-builder config.
+            - Linux release assets include AppImage and deb.
