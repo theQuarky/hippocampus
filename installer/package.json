@@ -108,8 +108,7 @@
       "maintainer": "Hiren Rana <ranahiren27@gmail.com>",
       "target": [
         "AppImage",
-        "deb",
-        "snap"
+        "deb"
       ],
       "icon": "assets/icon.png",
       "category": "Utility"
