@@ -16,16 +16,15 @@ jobs:
   build-docker-scripts:
     name: Build Docker installer scripts
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Package shell scripts
         run: |
           cd installer/scripts
           zip ../../hippocampus-docker-installer.zip install.sh install.ps1
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v4
         with:
           name: docker-scripts
           path: hippocampus-docker-installer.zip
@@ -34,17 +33,14 @@ jobs:
   build-linux:
     name: Build Linux installers
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: |
-            package-lock.json
-            installer/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Build main app
         run: |
@@ -62,7 +58,7 @@ jobs:
         working-directory: installer
         run: npm run dist:linux
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v4
         with:
           name: linux-installers
           path: |
@@ -74,17 +70,14 @@ jobs:
   build-windows:
     name: Build Windows installer
     runs-on: windows-latest
-
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: |
-            package-lock.json
-            installer/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Build main app
         run: |
@@ -103,7 +96,7 @@ jobs:
         working-directory: installer
         run: npm run dist:win
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: installer/dist/**/*.exe
@@ -112,17 +105,14 @@ jobs:
   build-mac:
     name: Build macOS installer
     runs-on: macos-latest
-
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: |
-            package-lock.json
-            installer/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Build main app
         run: |
@@ -146,7 +136,7 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
         run: npm run dist:mac
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v4
         with:
           name: mac-installer
           path: installer/dist/**/*.dmg
@@ -160,12 +150,10 @@ jobs:
       - build-windows
       - build-mac
     runs-on: ubuntu-latest
-
     permissions:
       contents: write
-
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
 
