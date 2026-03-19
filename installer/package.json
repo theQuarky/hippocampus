@@ -2,8 +2,9 @@
   "name": "hippocampus-installer",
   "version": "0.1.0",
   "description": "Hippocampus — Local AI Memory System",
-  "author": "Hiren Rana",
+  "author": "Hiren Rana <ranahiren27@gmail.com>",
   "main": "dist/electron/main.js",
+  "homepage": "https://github.com/theQuarky/hippocampus",
   "scripts": {
     "dev": "concurrently \"tsc -w -p tsconfig.electron.json\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "tsc -p tsconfig.electron.json && vite build",
@@ -104,6 +105,7 @@
       ]
     },
     "linux": {
+      "maintainer": "Hiren Rana <ranahiren27@gmail.com>",
       "target": [
         "AppImage",
         "deb",
