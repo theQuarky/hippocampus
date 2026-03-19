@@ -160,6 +160,9 @@ jobs:
       - name: Show downloaded artifacts
         run: find artifacts -type f | sort
 
+      - name: Install snapcraft
+        run: sudo snap install snapcraft --classic
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
