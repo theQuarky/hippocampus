@@ -84,12 +84,12 @@ export async function queryAnswer(question: string, database: string = DEFAULT_M
 
   // Step 1: Embed the question (single embedding call, reused everywhere)
   const embedding = await embed(question);
-  console.log(`[PIPELINE] embed: ${Date.now() - t0}ms`);
+  if (DEBUG_PERF) console.log(`[PIPELINE] embed: ${Date.now() - t0}ms`);
 
   // Step 2: Retrieve top-k chunks from Qdrant via vector search
   const tRetrieve = Date.now();
   const retrieved = await retrieveByVector(embedding, CONTEXT_TOP_K, dbName);
-  console.log(`[PIPELINE] retrieval: ${Date.now() - tRetrieve}ms  (${retrieved.length} chunks, top_k=${CONTEXT_TOP_K})`);
+  if (DEBUG_PERF) console.log(`[PIPELINE] retrieval: ${Date.now() - tRetrieve}ms  (${retrieved.length} chunks, top_k=${CONTEXT_TOP_K})`);
 
   // Wait for warmup to finish before we call generate
   await warmupPromise;
@@ -141,12 +141,12 @@ export async function queryAnswer(question: string, database: string = DEFAULT_M
     })),
     concepts.length > 0 ? concepts : undefined,
   );
-  console.log(`[PIPELINE] context_build: ${Date.now() - tContext}ms  (${contextPackage.chunkIds.length} chunks used, context_chars=${contextPackage.contextText.length})`);
+  if (DEBUG_PERF) console.log(`[PIPELINE] context_build: ${Date.now() - tContext}ms  (${contextPackage.chunkIds.length} chunks used, context_chars=${contextPackage.contextText.length})`);
 
   // Step 9: Generate final answer using LLM
   const tAnswer = Date.now();
   const result = await generateGroundedAnswer(question, contextPackage, evidenceBundle);
-  console.log(`[PIPELINE] answer_generation: ${Date.now() - tAnswer}ms`);
+  if (DEBUG_PERF) console.log(`[PIPELINE] answer_generation: ${Date.now() - tAnswer}ms`);
 
   // Step 10: Graph edge lookup for explainability
   const topEvidence = evidenceChunks.slice(0, MAX_EVIDENCE_CHUNKS);
@@ -159,7 +159,7 @@ export async function queryAnswer(question: string, database: string = DEFAULT_M
     confidence: c.confidence,
   }));
 
-  console.log(`[PIPELINE] total: ${Date.now() - t0}ms`);
+  if (DEBUG_PERF) console.log(`[PIPELINE] total: ${Date.now() - t0}ms`);
 
   return {
     answer: result.answer,

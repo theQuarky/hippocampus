@@ -1,10 +1,10 @@
 // src/answer/generator.ts — Grounded answer generation via local LLM (with timeout)
 import { Ollama } from 'ollama';
-import { ANSWER_MODEL, MAX_OUTPUT_TOKENS, LLM_TIMEOUT_MS, OLLAMA_URL } from '../config';
-
-const ollama = new Ollama({ host: OLLAMA_URL });
+import { ANSWER_MODEL, MAX_OUTPUT_TOKENS, LLM_TIMEOUT_MS, OLLAMA_URL, DEBUG_PERF } from '../config';
 import type { ContextPackage } from './context';
 import type { EvidenceBundle, EvidenceChunk } from '../types/evidence';
+
+const ollama = new Ollama({ host: OLLAMA_URL });
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -49,7 +49,7 @@ export async function warmupModel(): Promise<void> {
       prompt: 'hi',
       options: { num_predict: 1 },
     });
-    console.log(`[GEN] model warmup: ${Date.now() - t}ms`);
+    if (DEBUG_PERF) console.log(`[GEN] model warmup: ${Date.now() - t}ms`);
   } catch (e) {
     console.warn(`[GEN] model warmup failed: ${e instanceof Error ? e.message : e}`);
   }
@@ -76,7 +76,7 @@ export async function generateGroundedAnswer(
   const promptChars = prompt.length;
   const promptTokensEst = Math.ceil(promptChars / 4);
   const chunkCount = contextPackage.chunkIds.length;
-  console.log(`[GEN] model=${ANSWER_MODEL}  chunks_in_prompt=${chunkCount}  prompt_chars=${promptChars}  prompt_tokens≈${promptTokensEst}  max_output_tokens=${MAX_OUTPUT_TOKENS}  timeout=${LLM_TIMEOUT_MS}ms`);
+  if (DEBUG_PERF) console.log(`[GEN] model=${ANSWER_MODEL}  chunks_in_prompt=${chunkCount}  prompt_chars=${promptChars}  prompt_tokens≈${promptTokensEst}  max_output_tokens=${MAX_OUTPUT_TOKENS}  timeout=${LLM_TIMEOUT_MS}ms`);
 
   const t0 = Date.now();
 
@@ -108,7 +108,7 @@ export async function generateGroundedAnswer(
   }
 
   const genMs = Date.now() - t0;
-  console.log(`[GEN] ollama_generation: ${genMs}ms  (${(genMs / 1000).toFixed(1)}s)`);
+  if (DEBUG_PERF) console.log(`[GEN] ollama_generation: ${genMs}ms  (${(genMs / 1000).toFixed(1)}s)`);
 
   // Build evidence_used from the bundle, limited to chunks that were actually
   // included in the context (by chunk_id).

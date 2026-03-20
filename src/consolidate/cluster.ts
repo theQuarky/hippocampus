@@ -3,9 +3,9 @@ import { Ollama } from 'ollama';
 import { db, DEFAULT_MEMORY_DB } from '../db';
 import { embed } from '../embed';
 import { OLLAMA_MODEL, OLLAMA_URL } from '../config';
+import { cosineSimilarity } from './helpers';
 
 const ollama = new Ollama({ host: OLLAMA_URL });
-import { cosineSimilarity } from './helpers';
 
 type ChunkEmbeddingRow = {
   chunk_id: string;
