@@ -104,6 +104,7 @@ jobs:
   build-mac:
     name: Build macOS installer
     runs-on: macos-latest
+    if: ${{ secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' && secrets.MAC_CERT_P12 != '' && secrets.MAC_CERT_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -140,7 +141,7 @@ jobs:
           name: mac-installer
           path: installer/dist/**/*.dmg
           if-no-files-found: error
-
+          
   release:
     name: Create GitHub Release
     needs:
