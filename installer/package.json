@@ -46,7 +46,9 @@
         {
           "from": "binaries/windows",
           "to": "binaries",
-          "filter": ["**/*"]
+          "filter": [
+            "**/*"
+          ]
         }
       ],
       "target": [
@@ -69,11 +71,14 @@
       "license": "LICENSE.txt"
     },
     "mac": {
+      "artifactName": "installer.dmg",
       "extraResources": [
         {
           "from": "binaries/macos",
           "to": "binaries",
-          "filter": ["**/*"]
+          "filter": [
+            "**/*"
+          ]
         }
       ],
       "target": [
@@ -114,7 +119,9 @@
         {
           "from": "binaries/linux",
           "to": "binaries",
-          "filter": ["**/*"]
+          "filter": [
+            "**/*"
+          ]
         }
       ],
       "maintainer": "Hiren Rana <ranahiren27@gmail.com>",
