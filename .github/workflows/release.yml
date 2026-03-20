@@ -104,29 +104,46 @@ jobs:
   build-mac:
     name: Build macOS installer
     runs-on: macos-latest
-    if: ${{ secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' && secrets.MAC_CERT_P12 != '' && secrets.MAC_CERT_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check for Apple signing secrets
+        id: secrets-check
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
+        run: |
+          if [ -n "$APPLE_ID" ] && [ -n "$CSC_LINK" ]; then
+            echo "has-secrets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Skipping macOS build — Apple signing secrets not configured"
+            echo "has-secrets=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-node@v4
+        if: steps.secrets-check.outputs.has-secrets == 'true'
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
       - name: Build main app
+        if: steps.secrets-check.outputs.has-secrets == 'true'
         run: |
           npm ci
           npm run build
 
       - name: Download bundled binaries
+        if: steps.secrets-check.outputs.has-secrets == 'true'
         run: bash installer/scripts/bundle-binaries.sh macos
 
       - name: Install installer deps
+        if: steps.secrets-check.outputs.has-secrets == 'true'
         working-directory: installer
         run: npm ci
 
       - name: Build + notarize macOS installer
+        if: steps.secrets-check.outputs.has-secrets == 'true'
         working-directory: installer
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -134,21 +151,25 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
-        run: npm run dist:mac
+        run: |
+          if [ -z "$CSC_LINK" ]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          npm run dist:mac
 
       - uses: actions/upload-artifact@v4
+        if: steps.secrets-check.outputs.has-secrets == 'true'
         with:
           name: mac-installer
           path: installer/dist/**/*.dmg
           if-no-files-found: error
-          
+
   release:
     name: Create GitHub Release
     needs:
       - build-docker-scripts
       - build-linux
       - build-windows
-      - build-mac
     runs-on: ubuntu-latest
     permissions:
       contents: write

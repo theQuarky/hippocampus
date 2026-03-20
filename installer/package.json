@@ -36,7 +36,7 @@
     "productName": "Hippocampus",
     "copyright": "Copyright © 2026",
     "icon": "assets/icon.png",
-    "afterSign": "scripts/notarize.js",
+    "afterSign": "./scripts/notarize.js",
     "files": [
       "dist/**/*",
       "assets/**/*"
@@ -71,7 +71,6 @@
       "license": "LICENSE.txt"
     },
     "mac": {
-      "artifactName": "installer.dmg",
       "extraResources": [
         {
           "from": "binaries/macos",
