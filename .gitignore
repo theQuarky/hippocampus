@@ -32,6 +32,20 @@ uploads/
 hippocampus.db
 hippocampus.db-shm
 hippocampus.db-wal
+qdrant/
+models/
+ollama/
+overviews/
+venv/
+piper-voices/
+
+# Build artifacts & release binaries
+release/
+installer/binaries/
+installer/.qdrant-initialized
+
+# Local CI/test events
+.github/events/
 
 # Logs
 logs/
