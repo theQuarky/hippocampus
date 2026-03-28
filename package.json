@@ -38,7 +38,7 @@
         "concepts": "ts-node src/cli/cli.ts concepts",
         "dev": "ts-node src/cli/cli.ts",
         "server:dev": "ts-node src/server/index.ts",
-"test": "ts-node src/tests/integration.test.ts",
+        "test": "ts-node src/tests/integration.test.ts",
         "benchmark": "ts-node src/cli/cli.ts benchmark",
         "overview": "ts-node src/cli/cli.ts overview",
         "start": "node dist/cli/cli.js"
