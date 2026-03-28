@@ -117,3 +117,21 @@ if [ -d "node_modules/@huggingface/jinja" ]; then
 fi
 
 ok "Native modules ready in $BINARY_DIR/"
+
+# ── Wrapper script (sets LD_LIBRARY_PATH so TF .so files are found) ──────────
+# The TF .so files are dlopen'd at runtime so LD_LIBRARY_PATH must point to the
+# release dir. We rename the raw binary to .bin and replace it with a wrapper
+# so users just run ./hippocampus-server-linux as expected.
+if [ "$PLATFORM" = "linux" ]; then
+  BINARY_NAME="$(basename "$BINARY")"
+  RAW="$BINARY_DIR/${BINARY_NAME}.bin"
+  mv "$BINARY" "$RAW"
+  cat > "$BINARY" <<EOF
+#!/usr/bin/env bash
+DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+export LD_LIBRARY_PATH="\$DIR:\${LD_LIBRARY_PATH:-}"
+exec "\$DIR/${BINARY_NAME}.bin" "\$@"
+EOF
+  chmod +x "$BINARY"
+  ok "Wrapper installed as $(basename "$BINARY") (raw binary → ${BINARY_NAME}.bin)"
+fi

@@ -13,25 +13,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-docker-scripts:
-    name: Build Docker installer scripts
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Package shell scripts
-        run: |
-          cd installer/scripts
-          zip ../../hippocampus-docker-installer.zip install.sh install.ps1
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: docker-scripts
-          path: hippocampus-docker-installer.zip
-          if-no-files-found: error
-
   build-linux:
-    name: Build Linux installers
+    name: Build Linux binary
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,33 +28,30 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
-      - name: Build main app + pkg binary
+      - name: Install dependencies
         env:
-          npm_config_fetch_timeout: "600000"
-          npm_config_fetch_retry_mintimeout: "60000"
-          npm_config_fetch_retry_maxtimeout: "300000"
-          npm_config_fetch_retries: "5"
-        run: |
-          npm ci
-          npm run build
-          npm run pkg:linux
+          npm_config_fetch_timeout: '600000'
+          npm_config_fetch_retry_mintimeout: '60000'
+          npm_config_fetch_retry_maxtimeout: '300000'
+          npm_config_fetch_retries: '5'
+        run: npm ci
 
-      - name: Download bundled binaries
-        run: bash installer/scripts/bundle-binaries.sh linux
+      - name: Build & package
+        run: npm run release:linux
 
-      - name: Build AppImage
+      - name: Bundle release directory into tarball
         run: |
-          chmod +x installer/scripts/build-appimage.sh
-          VERSION=${{ github.ref_name }} bash installer/scripts/build-appimage.sh
+          VERSION=${{ github.ref_name }}
+          tar -czf hippocampus-${VERSION}-linux-x64.tar.gz -C release .
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-installers
-          path: installer/dist/Hippocampus-*.AppImage
+          name: linux-release
+          path: hippocampus-*.tar.gz
           if-no-files-found: error
 
   build-windows:
-    name: Build Windows installer
+    name: Build Windows binary
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,92 +62,27 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
-      - name: Build main app + pkg binary
-        run: |
-          npm ci
-          npm run build
-          npm run pkg:win
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Download bundled binaries
-        shell: bash
-        run: bash installer/scripts/bundle-binaries.sh windows
+      - name: Build & package
+        run: npm run build && npm run pkg:win
 
-      - name: Install NSIS
-        run: choco install nsis nsis-nlocl -y
-
-      - name: Build Windows installer
+      - name: Bundle release directory into zip
         shell: bash
         run: |
-          VERSION=${{ github.ref_name }} bash installer/scripts/build-nsis.sh
+          VERSION=${{ github.ref_name }}
+          cd release && zip -r ../hippocampus-${VERSION}-windows-x64.zip .
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
-          path: installer/dist/Hippocampus-Setup-*.exe
-          if-no-files-found: error
-
-  build-mac:
-    name: Build macOS installer
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check for Apple signing secrets
-        id: secrets-check
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
-        run: |
-          if [ -n "$APPLE_ID" ] && [ -n "$CSC_LINK" ]; then
-            echo "has-secrets=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::Skipping macOS build — Apple signing secrets not configured"
-            echo "has-secrets=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - uses: actions/setup-node@v4
-        if: steps.secrets-check.outputs.has-secrets == 'true'
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
-
-      - name: Build main app + pkg binary
-        if: steps.secrets-check.outputs.has-secrets == 'true'
-        run: |
-          npm ci
-          npm run build
-          pkg dist/server/index.js --target node22-macos-x64 --output release/hippocampus-server-macos --compress GZip
-          pkg dist/server/index.js --target node22-macos-arm64 --output release/hippocampus-server-macos-arm64 --compress GZip
-
-      - name: Download bundled binaries
-        if: steps.secrets-check.outputs.has-secrets == 'true'
-        run: bash installer/scripts/bundle-binaries.sh macos
-
-      - name: Build macOS DMG
-        if: steps.secrets-check.outputs.has-secrets == 'true'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
-        run: |
-          VERSION=${{ github.ref_name }} bash installer/scripts/build-dmg.sh
-
-      - uses: actions/upload-artifact@v4
-        if: steps.secrets-check.outputs.has-secrets == 'true'
-        with:
-          name: mac-installer
-          path: installer/dist/Hippocampus-*.dmg
+          name: windows-release
+          path: hippocampus-*.zip
           if-no-files-found: error
 
   release:
     name: Create GitHub Release
-    needs:
-      - build-docker-scripts
-      - build-linux
-      - build-windows
+    needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -176,40 +91,37 @@ jobs:
         with:
           path: artifacts
 
-      - name: Show downloaded artifacts
+      - name: Show artifacts
         run: find artifacts -type f | sort
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/docker-scripts/*.zip
-            artifacts/linux-installers/*.AppImage
-            artifacts/windows-installer/*.exe
-            artifacts/mac-installer/**/*.dmg
+            artifacts/linux-release/*.tar.gz
+            artifacts/windows-release/*.zip
           body: |
             ## Hippocampus ${{ github.ref_name }}
 
             Local AI memory system — private, offline, open source.
 
-            ### Quick install (Docker)
+            ### Installation
 
-            **Linux / macOS**
+            **Linux**
             ```bash
-            curl -fsSL https://github.com/theQuarky/hippocampus/releases/latest/download/install.sh | bash
+            tar -xzf hippocampus-${{ github.ref_name }}-linux-x64.tar.gz
+            ./hippocampus-server-linux
             ```
 
-            **Windows (PowerShell, run as Administrator)**
-            ```powershell
-            irm https://github.com/theQuarky/hippocampus/releases/latest/download/install.ps1 | iex
+            **Windows**
+            ```
+            unzip hippocampus-${{ github.ref_name }}-windows-x64.zip
+            hippocampus-server-win.exe
             ```
 
-            ### Native installers
+            ### Requirements
 
-            Download the installer for your platform from the assets below.
+            - [Qdrant](https://qdrant.tech) running on `localhost:6333`
+            - [Ollama](https://ollama.ai) running on `localhost:11434`
 
-            ### Notes
-
-            - macOS notarization requires Apple credentials in GitHub Actions secrets.
-            - Linux release asset is an AppImage (universal, no install needed).
-            - Windows installer does not require admin — installs to `%LOCALAPPDATA%`.
+            Or use Docker: `docker compose up -d`

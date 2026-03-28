@@ -12,7 +12,7 @@ import { ingest } from '../ingest';
 import { retrieve } from '../retrieve';
 import { reinforceConnections, decayConnections, abstractConcepts, hebbianStrengthen } from '../consolidate';
 import { getAssociativeStatus, loadOrInitAssociativeMemory, predictAssociativeScores, trainAssociativeMemory } from '../associative';
-import ollama from 'ollama';
+import { ollama } from '../consolidate/concepts';
 
 function expect(condition: unknown, message: string) {
   if (!condition) throw new Error(message);

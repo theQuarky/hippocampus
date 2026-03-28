@@ -22,7 +22,7 @@
         "pkg:linux": "node scripts/patch-for-pkg.js && pkg dist/server/index.js --target node22-linux-x64 --output release/hippocampus-server-linux --compress GZip && bash scripts/pkg-fix.sh release/hippocampus-server-linux linux",
         "pkg:win": "node scripts/patch-for-pkg.js && pkg dist/server/index.js --target node22-win-x64 --output release/hippocampus-server-win.exe --compress GZip && bash scripts/pkg-fix.sh release/hippocampus-server-win.exe win",
         "pkg:all": "npm run pkg:linux && npm run pkg:win",
-        "release:linux": "npm run build && npm run pkg:linux && bash installer/scripts/build-appimage.sh",
+        "release:linux": "npm run build && npm run pkg:linux",
         "release:win": "npm run build && npm run pkg:win && bash installer/scripts/build-nsis.sh",
         "docker:up": "docker compose up -d --build",
         "docker:down": "docker compose down",
