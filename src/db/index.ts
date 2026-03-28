@@ -46,7 +46,15 @@ export { COLLECTION, CONCEPT_COLLECTION, IMAGE_COLLECTION };
 
 // ── SQLite ─────────────────────────────────────────
 const DB_PATH = process.env.DB_PATH ?? path.join(process.cwd(), 'hippocampus.db');
-export const db = new Database(DB_PATH);
+
+// When running as a pkg binary, `bindings` resolves paths into the virtual
+// snapshot (/snapshot/…) and can't dlopen the .node file. Instead, pass an
+// explicit path relative to the binary so the OS can load it directly.
+const _betterSqliteAddon: string | undefined = (process as any).pkg
+  ? path.join(path.dirname(process.execPath), 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node')
+  : undefined;
+
+export const db = new Database(DB_PATH, _betterSqliteAddon ? { nativeBinding: _betterSqliteAddon } : undefined);
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
 

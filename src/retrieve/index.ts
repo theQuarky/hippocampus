@@ -1,6 +1,7 @@
 // src/retrieve/index.ts
 import { createHash, randomUUID } from 'crypto';
 import { embed } from '../embed';
+import { loadXenova } from '../xenova';
 import { db, qdrant, COLLECTION, CONCEPT_COLLECTION, DEFAULT_MEMORY_DB } from '../db';
 import { buildChunkConceptMembership, conceptScoreForChunk, predictAssociativeScores } from '../associative';
 import { INCLUDE_CONCEPTS, DEBUG_PERF, CONCEPT_BOOST, CONCEPT_TOP_K, CONCEPT_MIN_SCORE, MIN_SCORE } from '../config';
@@ -292,7 +293,7 @@ async function getRerankPipeline(): Promise<any> {
 
   rerankPipelineLoading = true;
   try {
-    const { pipeline } = await import('@xenova/transformers');
+    const { pipeline } = await loadXenova();
     rerankPipeline = await pipeline(
       'text-classification',
       'Xenova/ms-marco-MiniLM-L-6-v2',

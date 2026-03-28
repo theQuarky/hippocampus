@@ -9,7 +9,11 @@ import { startHttpServer } from './httpServer';
 import { ingestHandler, queryHandler, healthHandler } from './grpc';
 import { HOST, DEFAULT_PORT } from './helpers';
 
-const PROTO_PATH = path.join(__dirname, '..', 'proto', 'hippocampus.proto');
+// When running as a pkg binary, __dirname points into the virtual snapshot and
+// the .proto file must be loaded from the real filesystem next to the binary.
+const PROTO_PATH = (process as any).pkg
+  ? path.join(path.dirname(process.execPath), 'hippocampus.proto')
+  : path.join(__dirname, '..', 'proto', 'hippocampus.proto');
 
 async function startServer() {
   await initDB();

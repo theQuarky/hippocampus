@@ -36,34 +36,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libvips-dev
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
-      - name: Build main app
+      - name: Build main app + pkg binary
+        env:
+          npm_config_fetch_timeout: "600000"
+          npm_config_fetch_retry_mintimeout: "60000"
+          npm_config_fetch_retry_maxtimeout: "300000"
+          npm_config_fetch_retries: "5"
         run: |
           npm ci
           npm run build
+          npm run pkg:linux
 
       - name: Download bundled binaries
         run: bash installer/scripts/bundle-binaries.sh linux
 
-      - name: Install installer deps
-        working-directory: installer
-        run: npm ci
-
-      - name: Build Linux installers
-        working-directory: installer
-        run: npm run dist:linux
+      - name: Build AppImage
+        run: |
+          chmod +x installer/scripts/build-appimage.sh
+          VERSION=${{ github.ref_name }} bash installer/scripts/build-appimage.sh
 
       - uses: actions/upload-artifact@v4
         with:
           name: linux-installers
-          path: |
-            installer/dist/**/*.AppImage
-            installer/dist/**/*.deb
+          path: installer/dist/Hippocampus-*.AppImage
           if-no-files-found: error
 
   build-windows:
@@ -78,27 +82,28 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
-      - name: Build main app
+      - name: Build main app + pkg binary
         run: |
           npm ci
           npm run build
+          npm run pkg:win
 
       - name: Download bundled binaries
         shell: bash
         run: bash installer/scripts/bundle-binaries.sh windows
 
-      - name: Install installer deps
-        working-directory: installer
-        run: npm ci
+      - name: Install NSIS
+        run: choco install nsis nsis-nlocl -y
 
       - name: Build Windows installer
-        working-directory: installer
-        run: npm run dist:win
+        shell: bash
+        run: |
+          VERSION=${{ github.ref_name }} bash installer/scripts/build-nsis.sh
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: installer/dist/**/*.exe
+          path: installer/dist/Hippocampus-Setup-*.exe
           if-no-files-found: error
 
   build-mac:
@@ -127,24 +132,20 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
-      - name: Build main app
+      - name: Build main app + pkg binary
         if: steps.secrets-check.outputs.has-secrets == 'true'
         run: |
           npm ci
           npm run build
+          pkg dist/server/index.js --target node22-macos-x64 --output release/hippocampus-server-macos --compress GZip
+          pkg dist/server/index.js --target node22-macos-arm64 --output release/hippocampus-server-macos-arm64 --compress GZip
 
       - name: Download bundled binaries
         if: steps.secrets-check.outputs.has-secrets == 'true'
         run: bash installer/scripts/bundle-binaries.sh macos
 
-      - name: Install installer deps
+      - name: Build macOS DMG
         if: steps.secrets-check.outputs.has-secrets == 'true'
-        working-directory: installer
-        run: npm ci
-
-      - name: Build + notarize macOS installer
-        if: steps.secrets-check.outputs.has-secrets == 'true'
-        working-directory: installer
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
@@ -152,16 +153,13 @@ jobs:
           CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
         run: |
-          if [ -z "$CSC_LINK" ]; then
-            export CSC_IDENTITY_AUTO_DISCOVERY=false
-          fi
-          npm run dist:mac
+          VERSION=${{ github.ref_name }} bash installer/scripts/build-dmg.sh
 
       - uses: actions/upload-artifact@v4
         if: steps.secrets-check.outputs.has-secrets == 'true'
         with:
           name: mac-installer
-          path: installer/dist/**/*.dmg
+          path: installer/dist/Hippocampus-*.dmg
           if-no-files-found: error
 
   release:
@@ -186,9 +184,8 @@ jobs:
         with:
           files: |
             artifacts/docker-scripts/*.zip
-            artifacts/linux-installers/**/*.AppImage
-            artifacts/linux-installers/**/*.deb
-            artifacts/windows-installer/**/*.exe
+            artifacts/linux-installers/*.AppImage
+            artifacts/windows-installer/*.exe
             artifacts/mac-installer/**/*.dmg
           body: |
             ## Hippocampus ${{ github.ref_name }}
@@ -214,4 +211,5 @@ jobs:
             ### Notes
 
             - macOS notarization requires Apple credentials in GitHub Actions secrets.
-            - Linux release assets include AppImage and deb.
+            - Linux release asset is an AppImage (universal, no install needed).
+            - Windows installer does not require admin — installs to `%LOCALAPPDATA%`.

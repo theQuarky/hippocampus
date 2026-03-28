@@ -1,7 +1,7 @@
 // src/ingest/chunking/token.ts — Token-aware chunking using actual tokenizer
 // Replaces approxTokens-based sizing with real token counts.
-import { AutoTokenizer } from '@xenova/transformers';
 import { splitSentences } from './segment';
+import { loadXenova } from '../../xenova';
 import {
   EMBED_MODEL,
   EMBED_MAX_TOKENS,
@@ -21,6 +21,7 @@ let cachedTokenizer: any = null;
 
 async function getTokenizer(): Promise<any> {
   if (!cachedTokenizer) {
+    const { AutoTokenizer } = await loadXenova();
     cachedTokenizer = await AutoTokenizer.from_pretrained(EMBED_MODEL);
   }
   return cachedTokenizer;
