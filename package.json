@@ -3,9 +3,27 @@
     "version": "0.1.0",
     "description": "A schema-free semantic memory system for intelligent agents",
     "main": "dist/index.js",
+    "pkg": {
+        "scripts": "dist/**/*.js",
+        "assets": [
+            "dist/proto/hippocampus.proto",
+            "node_modules/@xenova/transformers/**/*",
+            "node_modules/better-sqlite3/build/**/*"
+        ],
+        "targets": [
+            "node22-linux-x64",
+            "node22-win-x64"
+        ],
+        "outputPath": "release"
+    },
     "scripts": {
-        "build": "tsc",
+        "build": "tsc && node -e \"require('fs').cpSync('src/proto', 'dist/proto', {recursive:true})\"",
         "server": "node dist/server/index.js",
+        "pkg:linux": "node scripts/patch-for-pkg.js && pkg dist/server/index.js --target node22-linux-x64 --output release/hippocampus-server-linux --compress GZip && bash scripts/pkg-fix.sh release/hippocampus-server-linux linux",
+        "pkg:win": "node scripts/patch-for-pkg.js && pkg dist/server/index.js --target node22-win-x64 --output release/hippocampus-server-win.exe --compress GZip && bash scripts/pkg-fix.sh release/hippocampus-server-win.exe win",
+        "pkg:all": "npm run pkg:linux && npm run pkg:win",
+        "release:linux": "npm run build && npm run pkg:linux && bash installer/scripts/build-appimage.sh",
+        "release:win": "npm run build && npm run pkg:win && bash installer/scripts/build-nsis.sh",
         "docker:up": "docker compose up -d --build",
         "docker:down": "docker compose down",
         "docker:logs": "docker compose logs -f hippocampus",
@@ -20,8 +38,7 @@
         "concepts": "ts-node src/cli/cli.ts concepts",
         "dev": "ts-node src/cli/cli.ts",
         "server:dev": "ts-node src/server/index.ts",
-        "dashboard": "cd dashboard && npm run dev",
-        "test": "ts-node src/tests/integration.test.ts",
+"test": "ts-node src/tests/integration.test.ts",
         "benchmark": "ts-node src/cli/cli.ts benchmark",
         "overview": "ts-node src/cli/cli.ts overview",
         "start": "node dist/cli/cli.js"
@@ -50,6 +67,7 @@
         "@types/node": "^20.11.5",
         "@types/pdf-parse": "^1.1.4",
         "@types/uuid": "^9.0.7",
+        "@yao-pkg/pkg": "^5.16.1",
         "ts-node": "^10.9.2",
         "typescript": "^5.3.3"
     },
