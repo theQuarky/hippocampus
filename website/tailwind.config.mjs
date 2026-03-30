@@ -5,21 +5,21 @@ export default {
     extend: {
       colors: {
         bg: {
-          primary: '#0f1117',
-          surface: '#13151a',
-          panel: '#1a1d24',
+          primary: '#eaf7ef',
+          surface: '#f4fbf7',
+          panel: '#ffffff',
         },
-        border: '#2a2d36',
+        border: '#bfdccd',
         accent: {
-          DEFAULT: '#6366f1',
-          hover: '#818cf8',
+          DEFAULT: '#207a57',
+          hover: '#2b9870',
         },
         text: {
-          primary: '#e2e8f0',
-          muted: '#94a3b8',
-          dim: '#64748b',
+          primary: '#183229',
+          muted: '#3d6355',
+          dim: '#5f8c7a',
         },
-        success: '#22c55e',
+        success: '#1d9a64',
         warning: '#f59e0b',
         danger: '#ef4444',
       },
