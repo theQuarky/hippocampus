@@ -1,0 +1,225 @@
+---
+// Animated memory-graph background — canvas-based, responds to mouse & clicks
+---
+<canvas
+  id="memory-graph"
+  aria-hidden="true"
+  class="absolute inset-0 w-full h-full pointer-events-none"
+></canvas>
+
+<script>
+(function () {
+  'use strict';
+
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const canvas = document.getElementById('memory-graph') as HTMLCanvasElement | null;
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d')!;
+
+  // ── Design tokens ──────────────────────────────────────────────────────────
+  const AC: [number, number, number] = [99, 102, 241]; // #6366f1
+  const BG_RGB: [number, number, number] = [15, 17, 23]; // #0f1117
+  const CONNECT_DIST = 145;
+  const MOUSE_RADIUS = 190;
+  const PULSE_INTERVAL = 210; // frames between ambient pulses
+
+  const LABELS = [
+    'memory', 'context', 'ingest', 'query',
+    'learn',  'audio',   'vision', 'embed', 'index',
+  ];
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let W = 0, H = 0;
+  const mouse = { x: -9999, y: -9999 };
+  let nodes: Node[] = [];
+  let pulseTimer = 0;
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function rgba(a: number): string {
+    return `rgba(${AC[0]},${AC[1]},${AC[2]},${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+  }
+
+  // ── Node ───────────────────────────────────────────────────────────────────
+  class Node {
+    x: number; y: number;
+    vx: number; vy: number;
+    r: number;
+    baseOpacity: number;
+    pulse: number;
+    label: string | null;
+    hub: boolean;
+
+    constructor(index: number) {
+      this.x = Math.random() * W;
+      this.y = Math.random() * H;
+      this.vx = (Math.random() - 0.5) * 0.28;
+      this.vy = (Math.random() - 0.5) * 0.28;
+      this.pulse = 0;
+      this.label = index < LABELS.length ? LABELS[index] : null;
+      this.hub = this.label !== null;
+      this.r = this.hub ? 3.5 : (1.5 + Math.random() * 1.5);
+      this.baseOpacity = this.hub ? 0.72 : (0.28 + Math.random() * 0.38);
+    }
+
+    update() {
+      // Mouse attraction
+      const dx = mouse.x - this.x;
+      const dy = mouse.y - this.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < MOUSE_RADIUS * MOUSE_RADIUS && d2 > 1) {
+        const d = Math.sqrt(d2);
+        const f = ((MOUSE_RADIUS - d) / MOUSE_RADIUS) * 0.013;
+        this.vx += (dx / d) * f;
+        this.vy += (dy / d) * f;
+      }
+
+      this.vx *= 0.985;
+      this.vy *= 0.985;
+      this.x  += this.vx;
+      this.y  += this.vy;
+
+      // Soft bounce
+      if (this.x < 0) { this.x = 0; this.vx =  Math.abs(this.vx); }
+      if (this.x > W) { this.x = W; this.vx = -Math.abs(this.vx); }
+      if (this.y < 0) { this.y = 0; this.vy =  Math.abs(this.vy); }
+      if (this.y > H) { this.y = H; this.vy = -Math.abs(this.vy); }
+
+      if (this.pulse > 0.01) this.pulse *= 0.93; else this.pulse = 0;
+    }
+
+    draw() {
+      const op = Math.min(1, this.baseOpacity + this.pulse * 0.5);
+
+      // Halo glow when pulsing
+      if (this.pulse > 0.05) {
+        const hR = this.r + this.pulse * 14;
+        const g = ctx.createRadialGradient(this.x, this.y, this.r * 0.5, this.x, this.y, hR);
+        g.addColorStop(0, rgba(this.pulse * 0.38));
+        g.addColorStop(1, rgba(0));
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, hR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Core dot
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+      ctx.fillStyle = rgba(op);
+      ctx.fill();
+
+      // Label (hub nodes only)
+      if (this.label) {
+        ctx.font = '9px "JetBrains Mono", monospace';
+        ctx.fillStyle = rgba(Math.min(0.88, 0.42 + this.pulse * 0.5));
+        ctx.textAlign = 'center';
+        ctx.fillText(this.label, this.x, this.y - this.r - 5);
+      }
+    }
+  }
+
+  // ── Drawing ────────────────────────────────────────────────────────────────
+  function drawEdges() {
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      for (let j = i + 1; j < nodes.length; j++) {
+        const b = nodes[j];
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist >= CONNECT_DIST) continue;
+
+        const base       = (1 - dist / CONNECT_DIST) * 0.28;
+        const pulseBoost = (a.pulse + b.pulse) * 0.32;
+        const alpha      = Math.min(0.9, base + pulseBoost);
+
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.strokeStyle = rgba(alpha);
+        ctx.lineWidth   = 0.65 + pulseBoost * 1.8;
+        ctx.stroke();
+      }
+    }
+    ctx.lineWidth = 1;
+  }
+
+  // Radial vignette so graph fades naturally into the page background
+  function drawVignette() {
+    const cx = W / 2, cy = H / 2;
+    const r  = Math.max(W, H) * 0.78;
+    const g  = ctx.createRadialGradient(cx, cy, r * 0.15, cx, cy, r);
+    g.addColorStop(0, `rgba(${BG_RGB.join(',')},0)`);
+    g.addColorStop(1, `rgba(${BG_RGB.join(',')},0.9)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // ── Animation loop ─────────────────────────────────────────────────────────
+  function tick() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Ambient pulse on a random hub node
+    if (++pulseTimer >= PULSE_INTERVAL) {
+      pulseTimer = 0;
+      const hubs = nodes.filter(n => n.hub);
+      if (hubs.length) hubs[Math.floor(Math.random() * hubs.length)].pulse = 1;
+    }
+
+    drawEdges();
+    nodes.forEach(n => { n.update(); n.draw(); });
+    drawVignette();
+
+    requestAnimationFrame(tick);
+  }
+
+  // ── Initialisation ─────────────────────────────────────────────────────────
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    W = canvas!.offsetWidth;
+    H = canvas!.offsetHeight;
+    canvas!.width  = Math.round(W * dpr);
+    canvas!.height = Math.round(H * dpr);
+    ctx.scale(dpr, dpr);
+  }
+
+  function init() {
+    resize();
+    const count = W < 640 ? 32 : W < 1024 ? 46 : 58;
+    nodes = Array.from({ length: count }, (_, i) => new Node(i));
+    requestAnimationFrame(tick);
+  }
+
+  // ── Event listeners ────────────────────────────────────────────────────────
+  window.addEventListener('resize', () => {
+    resize();
+    nodes.forEach(n => { n.x = Math.min(n.x, W); n.y = Math.min(n.y, H); });
+  });
+
+  function updateMouse(cx: number, cy: number) {
+    const rect = canvas!.getBoundingClientRect();
+    mouse.x = cx - rect.left;
+    mouse.y = cy - rect.top;
+  }
+
+  window.addEventListener('mousemove', e => updateMouse(e.clientX, e.clientY));
+
+  window.addEventListener('touchmove', e => {
+    updateMouse(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+
+  // Click/tap → pulse the two nearest nodes
+  window.addEventListener('click', e => {
+    const rect = canvas!.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    [...nodes]
+      .sort((a, b) => Math.hypot(a.x - mx, a.y - my) - Math.hypot(b.x - mx, b.y - my))
+      .slice(0, 2)
+      .forEach(n => { n.pulse = 1; });
+  });
+
+  init();
+})();
+</script>
