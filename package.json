@@ -8,10 +8,12 @@
         "assets": [
             "dist/proto/hippocampus.proto",
             "node_modules/@xenova/transformers/**/*",
-            "node_modules/better-sqlite3/build/**/*"
+            "node_modules/better-sqlite3/build/**/*",
+            "node_modules/onnxruntime-node/bin/**/*"
         ],
         "targets": [
-            "node22-linux-x64"
+            "node22-linux-x64",
+            "node22-win-x64"
         ],
         "outputPath": "release"
     },
@@ -19,6 +21,8 @@
         "build": "tsc && node -e \"require('fs').cpSync('src/proto', 'dist/proto', {recursive:true})\"",
         "server": "node dist/server/index.js",
         "pkg:linux": "node scripts/patch-for-pkg.js && pkg dist/server/index.js --target node22-linux-x64 --output release/hippocampus-server-linux --compress GZip && bash scripts/pkg-fix.sh release/hippocampus-server-linux linux",
+        "pkg:win": "node scripts/patch-for-pkg.js && pkg dist/server/index.js --target node22-win-x64 --output release/hippocampus-server-win.exe --compress GZip && bash scripts/pkg-fix.sh release/hippocampus-server-win.exe win",
+        "pkg:all": "npm run pkg:linux && npm run pkg:win",
         "release:linux": "npm run build && npm run pkg:linux",
         "docker:up": "docker compose up -d --build",
         "docker:down": "docker compose down",

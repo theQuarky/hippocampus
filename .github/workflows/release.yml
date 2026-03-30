@@ -14,13 +14,10 @@ concurrency:
 
 jobs:
   build-linux:
-    name: Build Linux binary
+    name: Build Linux AppImage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libvips-dev
 
       - uses: actions/setup-node@v4
         with:
@@ -28,31 +25,69 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
-      - name: Install dependencies
-        env:
-          npm_config_fetch_timeout: '600000'
-          npm_config_fetch_retry_mintimeout: '60000'
-          npm_config_fetch_retry_maxtimeout: '300000'
-          npm_config_fetch_retries: '5'
-        run: npm ci
+      - name: Install deps + build
+        run: npm ci && npm run build
 
-      - name: Build & package
-        run: npm run release:linux
-
-      - name: Bundle release directory into tarball
+      - name: Build pkg binary
         run: |
-          VERSION=${{ github.ref_name }}
-          tar -czf hippocampus-${VERSION}-linux-x64.tar.gz -C release .
+          npm install -g @yao-pkg/pkg
+          npm run pkg:linux
+
+      - name: Bundle qdrant + ollama
+        run: bash installer/scripts/bundle-binaries.sh linux
+
+      - name: Build AppImage
+        run: |
+          chmod +x installer/scripts/build-appimage.sh
+          VERSION=${GITHUB_REF_NAME#v} bash installer/scripts/build-appimage.sh
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-release
-          path: hippocampus-*.tar.gz
+          name: linux-installers
+          path: installer/dist/Hippocampus-*.AppImage
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install deps + build
+        run: npm ci && npm run build
+
+      - name: Build pkg binary
+        run: |
+          npm install -g @yao-pkg/pkg
+          npm run pkg:win
+
+      - name: Bundle qdrant + ollama
+        shell: bash
+        run: bash installer/scripts/bundle-binaries.sh windows
+
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Build Windows installer
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF_NAME#v} bash installer/scripts/build-nsis.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: installer/dist/Hippocampus-Setup-*.exe
           if-no-files-found: error
 
   release:
     name: Create GitHub Release
-    needs: [build-linux]
+    needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -68,7 +103,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/linux-release/*.tar.gz
+            artifacts/linux-installers/Hippocampus-*.AppImage
+            artifacts/windows-installer/Hippocampus-Setup-*.exe
           body: |
             ## Hippocampus ${{ github.ref_name }}
 
@@ -78,13 +114,23 @@ jobs:
 
             **Linux**
             ```bash
-            tar -xzf hippocampus-${{ github.ref_name }}-linux-x64.tar.gz
-            ./hippocampus-server-linux
+            chmod +x Hippocampus-${{ github.ref_name }}.AppImage
+            ./Hippocampus-${{ github.ref_name }}.AppImage
             ```
 
-            ### Requirements
+            **Windows**
 
-            - [Qdrant](https://qdrant.tech) running on `localhost:6333`
-            - [Ollama](https://ollama.ai) running on `localhost:11434`
+            Run `Hippocampus-Setup-${{ github.ref_name }}.exe` — no admin required.
 
-            Or use Docker: `docker compose up -d`
+            ### Usage
+
+            ```bash
+            # Start the server (Qdrant + Ollama + HTTP API start automatically)
+            ./Hippocampus-*.AppImage
+
+            # CLI
+            ./Hippocampus-*.AppImage ingest /path/to/file.pdf
+            ./Hippocampus-*.AppImage query "what did I read about X?"
+            ```
+
+            HTTP API available at `http://localhost:3001` after startup.
