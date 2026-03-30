@@ -16,6 +16,15 @@ die() { echo -e "\033[0;31m✗\033[0m $*" >&2; exit 1; }
 [ -f "$BINARIES/qdrant" ]                  || die "qdrant not found. Run: bash installer/scripts/bundle-binaries.sh linux"
 [ -f "$BINARIES/ollama" ]                  || die "ollama not found. Run: bash installer/scripts/bundle-binaries.sh linux"
 
+# Fail early if prior sudo runs left root-owned artifacts behind.
+if [ -e "$OUT" ] && [ ! -w "$OUT" ]; then
+  die "Output dir is not writable: $OUT (run: sudo chown -R \"$USER:$USER\" \"$OUT\")"
+fi
+
+if [ -e "$APPDIR" ] && [ ! -w "$APPDIR" ]; then
+  die "AppDir is not writable: $APPDIR (run: sudo chown -R \"$USER:$USER\" \"$APPDIR\")"
+fi
+
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
 # ── Binaries ──────────────────────────────────────────────────────────────────
@@ -46,7 +55,35 @@ chmod +x "$APPDIR/usr/bin/qdrant" "$APPDIR/usr/bin/ollama"
 if [ -f "$ROOT/installer/assets/icon.png" ]; then
   cp "$ROOT/installer/assets/icon.png" \
      "$APPDIR/usr/share/icons/hicolor/256x256/apps/hippocampus.png"
+  # appimagetool expects an icon matching the desktop Icon key at AppDir root.
+  cp "$ROOT/installer/assets/icon.png" "$APPDIR/hippocampus.png"
   cp "$ROOT/installer/assets/icon.png" "$APPDIR/.DirIcon"
+else
+  # Fallback icon so appimagetool does not fail when project assets are missing.
+  cat > "$APPDIR/hippocampus.xpm" << 'EOF'
+/* XPM */
+static char * hippocampus_xpm[] = {
+"16 16 2 1",
+"  c #0B6E4F",
+". c #A5F3FC",
+"                ",
+"      ....      ",
+"    ........    ",
+"   ..      ..   ",
+"  ..  ....  ..  ",
+" ..  ......  .. ",
+" ..  ......  .. ",
+" ..  ......  .. ",
+" ..  ......  .. ",
+"  ..  ....  ..  ",
+"   ..      ..   ",
+"    ........    ",
+"      ....      ",
+"                ",
+"                ",
+"                "};
+EOF
+  cp "$APPDIR/hippocampus.xpm" "$APPDIR/.DirIcon"
 fi
 
 # ── Desktop entry ─────────────────────────────────────────────────────────────
