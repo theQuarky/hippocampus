@@ -56,13 +56,43 @@ extract_from_zip() {
   fi
 }
 
+# ── Helper: extract .tar.zst with portable fallbacks ─────────────────────────
+extract_tar_zst() {
+  local archive="$1" dest_dir="$2"
+
+  # Prefer native tar support when available.
+  if tar --help 2>/dev/null | grep -q -- '--zstd'; then
+    tar --zstd -xf "$archive" -C "$dest_dir"
+    return
+  fi
+
+  # Some tar builds auto-detect zstd from extension.
+  if tar -xf "$archive" -C "$dest_dir" 2>/dev/null; then
+    return
+  fi
+
+  # Fallback through explicit zstd decompression.
+  if command -v unzstd >/dev/null 2>&1; then
+    unzstd -c "$archive" | tar -xf - -C "$dest_dir"
+    return
+  fi
+
+  if command -v zstd >/dev/null 2>&1; then
+    zstd -dc "$archive" | tar -xf - -C "$dest_dir"
+    return
+  fi
+
+  die "Unable to extract $archive (.tar.zst). Install tar with zstd support or zstd/unzstd."
+}
+
 if [ "$PLATFORM" = "linux" ]; then
 
   # ── Qdrant ──────────────────────────────────────────────────────────────────
   if [ ! -f "$OUT/qdrant" ]; then
     log "Downloading qdrant $QDRANT_VERSION (linux x86_64)..."
+    log "https://github.com/qdrant/qdrant/releases/download/${QDRANT_VERSION}/qdrant-x86_64-unknown-linux-musl.tar.gz"
     curl -fSL \
-      "https://github.com/qdrant/qdrant/releases/tag/${QDRANT_VERSION}/qdrant-x86_64-unknown-linux-musl.tar.gz" \
+      "https://github.com/qdrant/qdrant/releases/download/${QDRANT_VERSION}/qdrant-x86_64-unknown-linux-musl.tar.gz" \
       -o "$TMP/qdrant.tar.gz"
     tar -xzf "$TMP/qdrant.tar.gz" -C "$TMP"
     # Binary may be at root or in a subdirectory
@@ -76,14 +106,13 @@ if [ "$PLATFORM" = "linux" ]; then
 
   # ── Ollama ───────────────────────────────────────────────────────────────────
   if [ ! -f "$OUT/ollama" ]; then
-    log "Downloading ollama $OLLAMA_VERSION (linux amd64)..."
-    # Ollama provides a tgz with bin/ollama inside
-    OLLAMA_URL="https://github.com/ollama/ollama/releases/download/${OLLAMA_VERSION}/ollama-linux-amd64.tgz"
-    curl -fSL "$OLLAMA_URL" -o "$TMP/ollama.tgz"
-    tar -xzf "$TMP/ollama.tgz" -C "$TMP"
+    log "Downloading ollama $OLLAMA_VERSION (linux arm64)..."
+    OLLAMA_URL="https://github.com/ollama/ollama/releases/download/${OLLAMA_VERSION}/ollama-linux-arm64.tar.zst"
+    curl -fSL "$OLLAMA_URL" -o "$TMP/ollama.tar.zst"
+    extract_tar_zst "$TMP/ollama.tar.zst" "$TMP"
     # Find the ollama binary (may be at bin/ollama or ./ollama)
     OLLAMA_BIN=$(find "$TMP" -maxdepth 3 -name "ollama" -type f | head -1)
-    [ -n "$OLLAMA_BIN" ] || die "Could not find ollama binary inside tgz"
+    [ -n "$OLLAMA_BIN" ] || die "Could not find ollama binary inside tar.zst"
     mv "$OLLAMA_BIN" "$OUT/ollama"
     chmod +x "$OUT/ollama"
     ok "ollama ready: $OUT/ollama"
