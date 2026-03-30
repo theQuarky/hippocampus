@@ -62,7 +62,7 @@ if [ "$PLATFORM" = "linux" ]; then
   if [ ! -f "$OUT/qdrant" ]; then
     log "Downloading qdrant $QDRANT_VERSION (linux x86_64)..."
     curl -fSL \
-      "https://github.com/qdrant/qdrant/releases/download/${QDRANT_VERSION}/qdrant-x86_64-unknown-linux-musl.tar.gz" \
+      "https://github.com/qdrant/qdrant/releases/tag/${QDRANT_VERSION}/qdrant-x86_64-unknown-linux-musl.tar.gz" \
       -o "$TMP/qdrant.tar.gz"
     tar -xzf "$TMP/qdrant.tar.gz" -C "$TMP"
     # Binary may be at root or in a subdirectory
