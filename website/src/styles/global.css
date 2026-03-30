@@ -5,6 +5,40 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: light;
+    --bg-primary-rgb: 234 247 239;
+    --bg-surface-rgb: 244 251 247;
+    --bg-panel-rgb: 255 255 255;
+    --border-rgb: 191 220 205;
+    --accent-rgb: 32 122 87;
+    --accent-hover-rgb: 43 152 112;
+    --text-primary-rgb: 24 50 41;
+    --text-muted-rgb: 61 99 85;
+    --text-dim-rgb: 95 140 122;
+    --success-rgb: 29 154 100;
+    --warning-rgb: 245 158 11;
+    --danger-rgb: 239 68 68;
+    --graph-rgb: 56 115 222;
+  }
+
+  [data-theme='dark'] {
+    color-scheme: dark;
+    --bg-primary-rgb: 11 20 17;
+    --bg-surface-rgb: 16 29 24;
+    --bg-panel-rgb: 21 35 29;
+    --border-rgb: 43 72 60;
+    --accent-rgb: 94 220 172;
+    --accent-hover-rgb: 129 235 194;
+    --text-primary-rgb: 219 243 232;
+    --text-muted-rgb: 163 201 183;
+    --text-dim-rgb: 122 157 142;
+    --success-rgb: 74 222 128;
+    --warning-rgb: 245 158 11;
+    --danger-rgb: 248 113 113;
+    --graph-rgb: 122 178 255;
+  }
+
   html {
     scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
@@ -69,7 +103,7 @@
   display: inline-block;
   width: 8px;
   height: 1.1em;
-  background: #6366f1;
+  background: rgb(var(--accent-rgb));
   margin-left: 2px;
   vertical-align: text-bottom;
   animation: blink 1s step-end infinite;

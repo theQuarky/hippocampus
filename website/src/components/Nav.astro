@@ -22,6 +22,16 @@ const links = [
           {link.label}
         </a>
       ))}
+      <button
+        id="theme-toggle"
+        type="button"
+        class="inline-flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md border border-border bg-bg-panel text-text-muted hover:text-text-primary hover:border-accent transition-colors"
+        aria-label="Toggle dark mode"
+        title="Toggle theme"
+      >
+        <span id="theme-toggle-icon" aria-hidden="true">&#x1f319;</span>
+        <span id="theme-toggle-label">Dark</span>
+      </button>
       <a
         href="https://github.com/theQuarky/hippocampus/releases/latest"
         class="text-sm font-medium px-3 py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white transition-colors"
@@ -33,3 +43,34 @@ const links = [
     </div>
   </div>
 </nav>
+
+<script>
+  (() => {
+    const root = document.documentElement;
+    const btn = document.getElementById('theme-toggle');
+    const icon = document.getElementById('theme-toggle-icon');
+    const label = document.getElementById('theme-toggle-label');
+    if (!btn || !icon || !label) return;
+
+    function getTheme() {
+      return root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    }
+
+    function applyButtonState() {
+      const dark = getTheme() === 'dark';
+      icon.textContent = dark ? '☀' : '🌙';
+      label.textContent = dark ? 'Light' : 'Dark';
+      btn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+    }
+
+    btn.addEventListener('click', () => {
+      const next = getTheme() === 'dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      applyButtonState();
+      window.dispatchEvent(new CustomEvent('themechange'));
+    });
+
+    applyButtonState();
+  })();
+</script>

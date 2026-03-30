@@ -19,6 +19,19 @@ const author = 'Hiren Rana';
     <meta name="description" content={description} />
     <meta name="author" content={author} />
     <meta name="generator" content={Astro.generator} />
+    <script is:inline>
+      (() => {
+        const root = document.documentElement;
+        try {
+          const saved = localStorage.getItem('theme');
+          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          const theme = saved === 'light' || saved === 'dark' ? saved : (prefersDark ? 'dark' : 'light');
+          root.setAttribute('data-theme', theme);
+        } catch {
+          root.setAttribute('data-theme', 'light');
+        }
+      })();
+    </script>
 
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonicalURL} />

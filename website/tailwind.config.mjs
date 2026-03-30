@@ -5,23 +5,23 @@ export default {
     extend: {
       colors: {
         bg: {
-          primary: '#eaf7ef',
-          surface: '#f4fbf7',
-          panel: '#ffffff',
+          primary: 'rgb(var(--bg-primary-rgb) / <alpha-value>)',
+          surface: 'rgb(var(--bg-surface-rgb) / <alpha-value>)',
+          panel: 'rgb(var(--bg-panel-rgb) / <alpha-value>)',
         },
-        border: '#bfdccd',
+        border: 'rgb(var(--border-rgb) / <alpha-value>)',
         accent: {
-          DEFAULT: '#207a57',
-          hover: '#2b9870',
+          DEFAULT: 'rgb(var(--accent-rgb) / <alpha-value>)',
+          hover: 'rgb(var(--accent-hover-rgb) / <alpha-value>)',
         },
         text: {
-          primary: '#183229',
-          muted: '#3d6355',
-          dim: '#5f8c7a',
+          primary: 'rgb(var(--text-primary-rgb) / <alpha-value>)',
+          muted: 'rgb(var(--text-muted-rgb) / <alpha-value>)',
+          dim: 'rgb(var(--text-dim-rgb) / <alpha-value>)',
         },
-        success: '#1d9a64',
-        warning: '#f59e0b',
-        danger: '#ef4444',
+        success: 'rgb(var(--success-rgb) / <alpha-value>)',
+        warning: 'rgb(var(--warning-rgb) / <alpha-value>)',
+        danger: 'rgb(var(--danger-rgb) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
