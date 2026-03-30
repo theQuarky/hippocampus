@@ -50,47 +50,9 @@ jobs:
           path: installer/dist/Hippocampus-*.AppImage
           if-no-files-found: error
 
-  build-windows:
-    name: Build Windows installer
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
-
-      - name: Install deps + build
-        run: npm ci && npm run build
-
-      - name: Build pkg binary
-        run: |
-          npm install -g @yao-pkg/pkg
-          npm run pkg:win
-
-      - name: Bundle qdrant + ollama
-        shell: bash
-        run: bash installer/scripts/bundle-binaries.sh windows
-
-      - name: Install NSIS
-        run: choco install nsis -y
-
-      - name: Build Windows installer
-        shell: bash
-        run: |
-          VERSION=${GITHUB_REF_NAME#v} bash installer/scripts/build-nsis.sh
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: installer/dist/Hippocampus-Setup-*.exe
-          if-no-files-found: error
-
   release:
     name: Create GitHub Release
-    needs: [build-linux, build-windows]
+    needs: [build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -107,7 +69,6 @@ jobs:
         with:
           files: |
             artifacts/linux-installers/Hippocampus-*.AppImage
-            artifacts/windows-installer/Hippocampus-Setup-*.exe
           body: |
             ## Hippocampus ${{ github.ref_name }}
 
@@ -120,10 +81,6 @@ jobs:
             chmod +x Hippocampus-${{ github.ref_name }}.AppImage
             ./Hippocampus-${{ github.ref_name }}.AppImage
             ```
-
-            **Windows**
-
-            Run `Hippocampus-Setup-${{ github.ref_name }}.exe` — no admin required.
 
             ### Usage
 
