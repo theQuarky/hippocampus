@@ -1,0 +1,51 @@
+---
+import Docs from '../../layouts/Docs.astro';
+---
+
+<Docs title="Architecture" description="How Hippocampus ingests multimodal data, stores memory, and retrieves grounded answers.">
+  <h1 id="architecture">Architecture</h1>
+  <p>
+    Hippocampus combines vector search, graph traversal, concept abstraction, and associative memory
+    to produce grounded answers with evidence.
+  </p>
+
+  <h2 id="pipeline-overview">Pipeline Overview</h2>
+  <ol>
+    <li>Ingest and parse source material (text, docs, URLs, audio, image, video).</li>
+    <li>Chunk and embed content into vectors.</li>
+    <li>Store vectors in Qdrant and graph/state in SQLite.</li>
+    <li>Retrieve with hybrid ranking (vector + graph + concept + associative boosts).</li>
+    <li>Generate grounded output from top evidence chunks.</li>
+  </ol>
+
+  <h2 id="components">Core Components</h2>
+  <ul>
+    <li><strong>Ingestion:</strong> <code>src/ingest/</code>, <code>src/parser/</code></li>
+    <li><strong>Embeddings:</strong> <code>src/embed/</code></li>
+    <li><strong>Retrieval:</strong> <code>src/retrieve/</code>, <code>src/associative.ts</code></li>
+    <li><strong>Consolidation:</strong> <code>src/consolidate/</code>, <code>src/concepts/</code></li>
+    <li><strong>Answer generation:</strong> <code>src/answer/</code></li>
+    <li><strong>APIs:</strong> <code>src/server/</code> (HTTP + gRPC)</li>
+  </ul>
+
+  <h2 id="data-stores">Data Stores</h2>
+  <ul>
+    <li><strong>Qdrant:</strong> dense vector retrieval and concept vectors.</li>
+    <li><strong>SQLite:</strong> chunks, typed connections, concepts, ingest events, and memory DB metadata.</li>
+    <li><strong>Ollama:</strong> local LLM execution for answer generation and media pipelines.</li>
+  </ul>
+
+  <h2 id="retrieval-flow">Retrieval Flow</h2>
+  <p>
+    A query is embedded, matched in Qdrant, expanded through graph links, optionally enriched with
+    concept neighbors, then re-ranked with associative memory features before answer generation.
+  </p>
+
+  <h2 id="why-hybrid">Why Hybrid Retrieval</h2>
+  <ul>
+    <li>Vectors capture semantic similarity.</li>
+    <li>Graph links preserve explicit relationships.</li>
+    <li>Concept nodes raise abstraction level for better reasoning.</li>
+    <li>Associative memory reinforces frequently co-accessed knowledge.</li>
+  </ul>
+</Docs>

@@ -1,0 +1,53 @@
+---
+import Docs from '../../layouts/Docs.astro';
+---
+
+<Docs title="CLI Reference" description="Commands for ingest, retrieval, consolidation, concepts, and audio overviews.">
+  <h1 id="cli-reference">CLI Reference</h1>
+  <p>
+    Run CLI commands with <code>hippocampus &lt;command&gt;</code> after installation, or with
+    <code>npm run &lt;script&gt; -- ...</code> in development.
+  </p>
+
+  <h2 id="common-commands">Common Commands</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Command</th>
+        <th>What it does</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><code>ingest &lt;file|url&gt;</code></td><td>Parse, chunk, embed, and store new content</td></tr>
+      <tr><td><code>ingest-dir &lt;folder&gt;</code></td><td>Recursively ingest supported files</td></tr>
+      <tr><td><code>watch &lt;folder&gt;</code></td><td>Watch a folder and auto-ingest changes</td></tr>
+      <tr><td><code>query &lt;question&gt;</code></td><td>Retrieve relevant chunks only</td></tr>
+      <tr><td><code>query-answer &lt;question&gt;</code></td><td>Retrieve and generate grounded answer</td></tr>
+      <tr><td><code>overview &lt;question&gt;</code></td><td>Generate spoken overview audio</td></tr>
+      <tr><td><code>consolidate</code></td><td>Type and strengthen graph connections</td></tr>
+      <tr><td><code>concepts</code></td><td>Build concept abstractions</td></tr>
+      <tr><td><code>sync-concepts</code></td><td>Push concept embeddings to Qdrant</td></tr>
+      <tr><td><code>benchmark</code></td><td>Run benchmark queries</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="examples">Examples</h2>
+  <pre><code>hippocampus ingest ./notes/paper.pdf
+hippocampus query "What is long-term potentiation?"
+hippocampus query-answer "Summarize the findings"
+hippocampus overview "Explain hippocampal replay" --format dialogue</code></pre>
+
+  <h2 id="database-selection">Database Selection</h2>
+  <p>
+    Most commands accept <code>--db &lt;name&gt;</code> so you can isolate multiple memory spaces.
+  </p>
+  <pre><code>hippocampus ingest ./paper.pdf --db neuroscience
+hippocampus query-answer "What changed this week?" --db project-notes</code></pre>
+
+  <h2 id="overview-formats">Overview Formats</h2>
+  <ul>
+    <li><code>monologue</code> (default)</li>
+    <li><code>dialogue</code></li>
+    <li><code>interview</code></li>
+  </ul>
+</Docs>

@@ -1,0 +1,22 @@
+<section class="py-16 border-t border-border">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6">
+    <h2 class="text-2xl font-bold text-center mb-8">What you can ingest</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {[
+        { icon: '&#x1f4c4;', name: 'PDF', desc: 'Research papers, books, reports' },
+        { icon: '&#x1f4dd;', name: 'DOCX', desc: 'Word documents' },
+        { icon: '&#x1f4cb;', name: 'TXT / MD', desc: 'Plain text and markdown' },
+        { icon: '&#x1f310;', name: 'HTML / URL', desc: 'Web pages and articles' },
+        { icon: '&#x1f3b5;', name: 'Audio', desc: 'Transcribed via Whisper' },
+        { icon: '&#x1f5bc;', name: 'Image', desc: 'Described via vision model' },
+        { icon: '&#x1f3ac;', name: 'Video', desc: 'Keyframes + audio extracted' },
+      ].map(item => (
+        <div class="bg-bg-panel border border-border rounded-lg p-4 hover:border-accent/50 transition-colors">
+          <div class="text-2xl mb-2" aria-hidden="true" set:html={item.icon} />
+          <div class="text-sm font-semibold text-text-primary mb-1">{item.name}</div>
+          <div class="text-xs text-text-dim">{item.desc}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

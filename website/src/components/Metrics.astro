@@ -1,0 +1,18 @@
+<section class="py-16 border-t border-border">
+  <div class="max-w-4xl mx-auto px-4 sm:px-6">
+    <h2 class="text-2xl font-bold text-center mb-8">Real numbers</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {[
+        { value: '3m 7s', label: '40MB book ingestion' },
+        { value: '384d', label: 'embedding vectors' },
+        { value: '2 hops', label: 'graph traversal depth' },
+        { value: '0', label: 'cloud API calls' },
+      ].map(item => (
+        <div class="bg-bg-panel border border-border rounded-lg p-5 text-center">
+          <div class="text-2xl font-bold font-mono text-text-primary mb-1">{item.value}</div>
+          <div class="text-xs text-text-dim">{item.label}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

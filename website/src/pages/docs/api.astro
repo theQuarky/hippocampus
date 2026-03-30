@@ -1,0 +1,62 @@
+---
+import Docs from '../../layouts/Docs.astro';
+---
+
+<Docs title="HTTP API" description="REST endpoints for query, ingest, stats, graph, concepts, overviews, and databases.">
+  <h1 id="http-api">HTTP API</h1>
+  <p>
+    Base URL: <code>http://localhost:3001</code>. All endpoints return JSON unless noted otherwise.
+  </p>
+
+  <h2 id="query-endpoints">Query Endpoints</h2>
+  <ul>
+    <li><code>POST /api/query</code></li>
+    <li><code>POST /api/query-answer</code></li>
+  </ul>
+  <pre><code>curl -X POST http://localhost:3001/api/query-answer \
+  -H 'Content-Type: application/json' \
+  -d '&#123;"question":"What is memory consolidation?"&#125;'</code></pre>
+
+  <h2 id="ingest-endpoints">Ingest Endpoints</h2>
+  <ul>
+    <li><code>POST /api/ingest/file</code> (multipart upload)</li>
+    <li><code>POST /api/ingest/url</code> (JSON body with <code>url</code>)</li>
+    <li><code>GET /api/ingest/progress/&lt;jobId&gt;</code> (SSE stream)</li>
+    <li><code>GET /api/ingests/recent</code></li>
+    <li><code>GET /api/ingest-events</code></li>
+  </ul>
+
+  <h2 id="insight-endpoints">Insight Endpoints</h2>
+  <ul>
+    <li><code>GET /api/stats</code></li>
+    <li><code>GET /api/chunks</code></li>
+    <li><code>GET /api/graph</code></li>
+    <li><code>GET /api/concepts</code></li>
+    <li><code>GET /api/sources</code></li>
+    <li><code>POST /api/consolidate/concepts</code></li>
+  </ul>
+
+  <h2 id="database-endpoints">Database Endpoints</h2>
+  <ul>
+    <li><code>GET /api/db/list</code></li>
+    <li><code>POST /api/db/create</code></li>
+    <li><code>POST /api/db/delete</code></li>
+  </ul>
+
+  <h2 id="audio-overview-endpoints">Audio Overview Endpoints</h2>
+  <ul>
+    <li><code>POST /api/overview</code></li>
+    <li><code>GET /api/overviews/&lt;file&gt;.mp3</code> (audio stream)</li>
+  </ul>
+
+  <h2 id="grpc-service">gRPC Service</h2>
+  <p>
+    gRPC runs on <code>localhost:50051</code> and is defined in
+    <code>src/proto/hippocampus.proto</code>.
+  </p>
+  <ul>
+    <li><code>Ingest</code></li>
+    <li><code>Query</code></li>
+    <li><code>Health</code></li>
+  </ul>
+</Docs>

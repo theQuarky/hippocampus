@@ -1,0 +1,72 @@
+---
+import Docs from '../../layouts/Docs.astro';
+---
+
+<Docs title="Configuration" description="Environment variables for models, retrieval, chunking, and runtime behavior.">
+  <h1 id="configuration">Configuration</h1>
+  <p>
+    Hippocampus is configured via environment variables. Most defaults are defined in
+    <code>src/config.ts</code>, while network port defaults are defined in
+    <code>src/server/helpers.ts</code> and <code>src/server/index.ts</code>.
+  </p>
+
+  <h2 id="core-runtime">Core Runtime</h2>
+  <table>
+    <thead>
+      <tr><th>Variable</th><th>Default</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>HTTP_PORT</code></td><td><code>3001</code></td></tr>
+      <tr><td><code>GRPC_PORT</code></td><td><code>50051</code></td></tr>
+      <tr><td><code>QDRANT_URL</code></td><td><code>http://localhost:6333</code></td></tr>
+      <tr><td><code>OLLAMA_URL</code></td><td><code>http://127.0.0.1:11434</code></td></tr>
+      <tr><td><code>QDRANT_COLLECTION</code></td><td><code>hippocampus</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="embedding-settings">Embedding Settings</h2>
+  <table>
+    <thead>
+      <tr><th>Variable</th><th>Default</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>EMBED_MODEL</code></td><td><code>Xenova/all-MiniLM-L6-v2</code></td></tr>
+      <tr><td><code>EMBED_DIMS</code></td><td><code>384</code></td></tr>
+      <tr><td><code>EMBED_MAX_TOKENS</code></td><td><code>512</code></td></tr>
+      <tr><td><code>EMBED_BATCH_SIZE</code></td><td><code>32</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="chunking-and-retrieval">Chunking And Retrieval</h2>
+  <table>
+    <thead>
+      <tr><th>Variable</th><th>Default</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>CHUNK_TARGET_MIN_TOKENS</code></td><td><code>350</code></td></tr>
+      <tr><td><code>CHUNK_TARGET_MAX_TOKENS</code></td><td><code>500</code></td></tr>
+      <tr><td><code>CHUNK_OVERLAP_TOKENS</code></td><td><code>40</code></td></tr>
+      <tr><td><code>MIN_SCORE</code></td><td><code>0.35</code></td></tr>
+      <tr><td><code>CONTEXT_TOP_K</code></td><td><code>3</code></td></tr>
+      <tr><td><code>MAX_EVIDENCE_CHUNKS</code></td><td><code>5</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="feature-flags">Feature Flags</h2>
+  <ul>
+    <li><code>ENABLE_LEARNING_WEIGHTS</code> (default <code>true</code>)</li>
+    <li><code>ENABLE_CONCEPT_VALIDATION</code> (default <code>true</code>)</li>
+    <li><code>ENABLE_GROUNDED_ANSWERS</code> (default <code>true</code>)</li>
+    <li><code>INCLUDE_CONCEPTS</code> (default <code>false</code>)</li>
+    <li><code>DEBUG_PERF</code> and <code>DEBUG_CHUNKS</code> (default <code>false</code>)</li>
+  </ul>
+
+  <h2 id="audio-and-media">Audio And Media</h2>
+  <ul>
+    <li><code>WHISPER_MODEL</code> (default <code>small</code>)</li>
+    <li><code>VISION_MODEL</code> (default <code>moondream</code>)</li>
+    <li><code>KEYFRAME_INTERVAL</code> (default <code>60</code>)</li>
+    <li><code>AUDIO_CHUNK_MINUTES</code> (default <code>2</code>)</li>
+    <li><code>OVERVIEWS_DIR</code> (default <code>./overviews</code>)</li>
+  </ul>
+</Docs>

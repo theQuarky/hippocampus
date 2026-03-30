@@ -1,0 +1,122 @@
+<section class="py-16 border-t border-border">
+  <div class="max-w-4xl mx-auto px-4 sm:px-6">
+    <h2 class="text-2xl font-bold text-center mb-8">Install</h2>
+
+    <div class="bg-bg-panel border border-border rounded-lg overflow-hidden">
+      <!-- Tab buttons -->
+      <div class="flex border-b border-border" role="tablist">
+        <button
+          role="tab"
+          aria-selected="true"
+          aria-controls="tab-docker"
+          id="btn-docker"
+          class="tab-btn px-6 py-3 text-sm font-medium text-text-primary border-b-2 border-accent bg-bg-surface"
+        >
+          Docker
+        </button>
+        <button
+          role="tab"
+          aria-selected="false"
+          aria-controls="tab-native"
+          id="btn-native"
+          class="tab-btn px-6 py-3 text-sm font-medium text-text-dim border-b-2 border-transparent hover:text-text-muted"
+        >
+          Native
+        </button>
+      </div>
+
+      <!-- Docker tab -->
+      <div id="tab-docker" role="tabpanel" aria-labelledby="btn-docker" class="tab-panel p-6">
+        <p class="text-sm text-text-muted mb-3">Linux / macOS</p>
+        <pre class="bg-bg-surface border border-border rounded-md p-4 text-sm font-mono text-text-primary overflow-x-auto mb-4"><code>curl -fsSL https://github.com/theQuarky/hippocampus/releases/latest/download/install.sh | bash</code></pre>
+        <p class="text-sm text-text-muted mb-3">Windows (PowerShell)</p>
+        <pre class="bg-bg-surface border border-border rounded-md p-4 text-sm font-mono text-text-primary overflow-x-auto"><code>irm https://github.com/theQuarky/hippocampus/releases/latest/download/install.ps1 | iex</code></pre>
+      </div>
+
+      <!-- Native tab -->
+      <div id="tab-native" role="tabpanel" aria-labelledby="btn-native" class="tab-panel p-6 hidden">
+        <p class="text-xs font-medium uppercase tracking-wider text-text-dim mb-3">Linux &mdash; download package</p>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+          <a
+            href="https://github.com/theQuarky/hippocampus/releases/latest"
+            class="flex items-center justify-center gap-2 px-4 py-3 rounded-md bg-bg-surface border border-border hover:border-accent text-sm text-text-primary transition-colors"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            &#x2B07; tar.gz (server binary)
+          </a>
+          <a
+            href="https://github.com/theQuarky/hippocampus/releases/latest"
+            class="flex items-center justify-center gap-2 px-4 py-3 rounded-md bg-bg-surface border border-border hover:border-accent text-sm text-text-primary transition-colors"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            &#x2B07; .AppImage
+          </a>
+          <a
+            href="https://github.com/theQuarky/hippocampus/releases/latest"
+            class="flex items-center justify-center gap-2 px-4 py-3 rounded-md bg-bg-surface border border-border hover:border-accent text-sm text-text-primary transition-colors"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            &#x2B07; .deb
+          </a>
+        </div>
+
+        <p class="text-xs font-medium uppercase tracking-wider text-text-dim mb-2">tar.gz &mdash; headless server</p>
+        <pre class="bg-bg-surface border border-border rounded-md p-4 text-sm font-mono text-text-primary overflow-x-auto mb-4"><code># 1. Download and extract
+curl -fL https://github.com/theQuarky/hippocampus/releases/latest/download/hippocampus-v0.1.0-linux-x64.tar.gz \
+  | tar -xz -C ~/hippocampus-bin --strip-components=0
+cd ~/hippocampus-bin
+
+# 2. Start the server (requires Qdrant + Ollama already running)
+./hippocampus-server-linux
+# HTTP API  &#x2192; http://localhost:3001
+# gRPC      &#x2192; localhost:50051</code></pre>
+
+        <p class="text-xs font-medium uppercase tracking-wider text-text-dim mb-2">AppImage &mdash; self-contained runner</p>
+        <pre class="bg-bg-surface border border-border rounded-md p-4 text-sm font-mono text-text-primary overflow-x-auto mb-4"><code>chmod +x Hippocampus-*.AppImage
+
+# Start server (requires Qdrant + Ollama already running)
+./Hippocampus-*.AppImage
+
+# Or run CLI commands directly
+./Hippocampus-*.AppImage ingest https://example.com
+./Hippocampus-*.AppImage query-answer "What is X?"</code></pre>
+
+        <p class="text-xs font-medium uppercase tracking-wider text-text-dim mb-2">.deb &mdash; GUI desktop installer</p>
+        <pre class="bg-bg-surface border border-border rounded-md p-4 text-sm font-mono text-text-primary overflow-x-auto mb-4"><code># Install the Electron-based desktop app
+sudo dpkg -i hippocampus-installer_*_amd64.deb
+
+# Launch the graphical setup wizard
+hippocampus-installer</code></pre>
+        <p class="text-xs text-text-dim mb-4">Note: the .deb installs a GUI setup application. For a headless/CLI server use the tar.gz or AppImage instead.</p>
+
+        <p class="text-xs text-text-dim mt-2">&#x26A0; macOS and Windows native packages are not yet available.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const targetId = btn.getAttribute('aria-controls');
+        if (!targetId) return;
+
+        // Reset all tabs
+        document.querySelectorAll('.tab-btn').forEach(b => {
+          b.setAttribute('aria-selected', 'false');
+          b.classList.remove('text-text-primary', 'border-accent', 'bg-bg-surface');
+          b.classList.add('text-text-dim', 'border-transparent');
+        });
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+
+        // Activate clicked tab
+        btn.setAttribute('aria-selected', 'true');
+        btn.classList.add('text-text-primary', 'border-accent', 'bg-bg-surface');
+        btn.classList.remove('text-text-dim', 'border-transparent');
+        document.getElementById(targetId)?.classList.remove('hidden');
+      });
+    });
+  </script>
+</section>

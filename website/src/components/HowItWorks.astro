@@ -1,0 +1,106 @@
+<section class="py-16 border-t border-border">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6">
+    <h2 class="text-2xl font-bold text-center mb-12">How it works</h2>
+
+    <div class="grid lg:grid-cols-2 gap-12 items-start">
+      <!-- SVG Diagram -->
+      <div class="flex justify-center">
+        <svg viewBox="0 0 400 420" class="w-full max-w-sm" aria-label="Hippocampus pipeline diagram">
+          <style>
+            .node-rect { fill: #1a1d24; stroke: #2a2d36; stroke-width: 1.5; rx: 6; }
+            .node-rect-accent { fill: #1a1d24; stroke: #6366f1; stroke-width: 1.5; rx: 6; }
+            .node-text { fill: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; font-size: 13px; font-weight: 500; }
+            .arrow { stroke: #2a2d36; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+            .arrow-accent { stroke: #6366f1; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead-accent); }
+            .label-text { fill: #64748b; font-family: 'Inter', system-ui, sans-serif; font-size: 10px; }
+          </style>
+          <defs>
+            <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#2a2d36" />
+            </marker>
+            <marker id="arrowhead-accent" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#6366f1" />
+            </marker>
+          </defs>
+
+          <!-- Documents -->
+          <rect class="node-rect" x="140" y="10" width="120" height="36" />
+          <text class="node-text" x="200" y="33" text-anchor="middle">Documents</text>
+
+          <line class="arrow" x1="200" y1="46" x2="200" y2="70" />
+
+          <!-- Chunker -->
+          <rect class="node-rect" x="140" y="72" width="120" height="36" />
+          <text class="node-text" x="200" y="95" text-anchor="middle">Chunker</text>
+
+          <line class="arrow" x1="200" y1="108" x2="200" y2="132" />
+
+          <!-- Embedder -->
+          <rect class="node-rect-accent" x="140" y="134" width="120" height="36" />
+          <text class="node-text" x="200" y="157" text-anchor="middle">Embedder</text>
+
+          <line class="arrow" x1="200" y1="170" x2="200" y2="194" />
+
+          <!-- Qdrant -->
+          <rect class="node-rect-accent" x="140" y="196" width="120" height="36" />
+          <text class="node-text" x="200" y="219" text-anchor="middle">Qdrant</text>
+
+          <!-- Branch left: Knowledge Graph -->
+          <line class="arrow" x1="140" y1="214" x2="68" y2="214" />
+          <line class="arrow" x1="60" y1="214" x2="60" y2="278" />
+          <rect class="node-rect" x="0" y="280" width="120" height="36" />
+          <text class="node-text" x="60" y="303" text-anchor="middle">Knowledge Graph</text>
+
+          <!-- Branch right: Retriever -->
+          <line class="arrow" x1="260" y1="214" x2="332" y2="214" />
+          <line class="arrow" x1="340" y1="214" x2="340" y2="278" />
+          <rect class="node-rect-accent" x="280" y="280" width="120" height="36" />
+          <text class="node-text" x="340" y="303" text-anchor="middle">Retriever</text>
+
+          <!-- Connect Retriever to Knowledge Graph -->
+          <line class="arrow-accent" x1="280" y1="298" x2="120" y2="298" />
+
+          <!-- Consolidation Worker -->
+          <line class="arrow" x1="60" y1="316" x2="60" y2="350" />
+          <rect class="node-rect" x="0" y="352" width="120" height="50" />
+          <text class="node-text" x="60" y="372" text-anchor="middle">Consolidation</text>
+          <text class="label-text" x="60" y="390" text-anchor="middle">(Hebbian strengthening)</text>
+
+          <!-- LLM Answer -->
+          <line class="arrow-accent" x1="340" y1="316" x2="340" y2="350" />
+          <rect class="node-rect-accent" x="280" y="352" width="120" height="36" />
+          <text class="node-text" x="340" y="375" text-anchor="middle">LLM Answer</text>
+        </svg>
+      </div>
+
+      <!-- Text explanation -->
+      <div class="space-y-6">
+        <div>
+          <h3 class="text-base font-semibold text-text-primary mb-2">1. Ingestion</h3>
+          <p class="text-sm text-text-muted leading-relaxed">
+            Documents are parsed, split into semantically meaningful chunks, and embedded
+            into high-dimensional vectors. Each chunk is stored in Qdrant for fast similarity
+            search, with metadata tracked in SQLite.
+          </p>
+        </div>
+        <div>
+          <h3 class="text-base font-semibold text-text-primary mb-2">2. Retrieval</h3>
+          <p class="text-sm text-text-muted leading-relaxed">
+            Queries are embedded and matched against stored chunks via vector similarity.
+            Results are expanded through multi-hop graph traversal, boosted by concept
+            abstractions, and re-ranked for precision.
+          </p>
+        </div>
+        <div>
+          <h3 class="text-base font-semibold text-text-primary mb-2">3. Memory</h3>
+          <p class="text-sm text-text-muted leading-relaxed">
+            Every retrieval strengthens the connections between accessed chunks &mdash;
+            inspired by Hebbian learning in biological neural networks. A background
+            consolidation worker classifies and decays connections over time, keeping
+            the knowledge graph relevant.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

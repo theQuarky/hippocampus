@@ -1,0 +1,176 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-bg-primary text-text-primary font-sans;
+  }
+
+  ::selection {
+    @apply bg-accent/30 text-white;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-primary;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text-dim;
+  }
+}
+
+/* Terminal typing animation */
+@keyframes typing {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.terminal-line {
+  overflow: hidden;
+  white-space: nowrap;
+  width: 0;
+  animation: typing 1.2s steps(40, end) forwards;
+}
+
+.terminal-line:nth-child(2) { animation-delay: 0s; }
+.terminal-line:nth-child(3) { animation-delay: 1.2s; }
+.terminal-line:nth-child(4) { animation-delay: 1.6s; }
+.terminal-line:nth-child(5) { animation-delay: 2.0s; }
+.terminal-line:nth-child(6) { animation-delay: 2.4s; }
+.terminal-line:nth-child(7) { animation-delay: 3.6s; }
+.terminal-line:nth-child(8) { animation-delay: 4.8s; }
+.terminal-line:nth-child(9) { animation-delay: 5.2s; }
+.terminal-line:nth-child(10) { animation-delay: 5.6s; }
+
+.terminal-cursor::after {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 1.1em;
+  background: #6366f1;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-line {
+    width: 100% !important;
+    animation: none !important;
+  }
+
+  .terminal-cursor::after {
+    animation: none !important;
+    opacity: 1;
+  }
+}
+
+/* Code block copy button */
+.code-block-wrapper {
+  @apply relative;
+}
+
+.copy-button {
+  @apply absolute top-2 right-2 px-2 py-1 text-xs font-mono rounded
+         bg-bg-surface text-text-muted border border-border
+         opacity-0 transition-opacity duration-200 cursor-pointer;
+}
+
+.code-block-wrapper:hover .copy-button {
+  @apply opacity-100;
+}
+
+.copy-button:hover {
+  @apply text-text-primary border-accent;
+}
+
+/* Docs prose styling */
+.docs-content h1 {
+  @apply text-3xl font-bold text-text-primary mt-0 mb-6;
+}
+
+.docs-content h2 {
+  @apply text-2xl font-semibold text-text-primary mt-10 mb-4 pb-2 border-b border-border;
+}
+
+.docs-content h3 {
+  @apply text-xl font-semibold text-text-primary mt-8 mb-3;
+}
+
+.docs-content p {
+  @apply text-text-muted leading-relaxed mb-4;
+}
+
+.docs-content a {
+  @apply text-accent hover:text-accent-hover underline underline-offset-2;
+}
+
+.docs-content ul {
+  @apply list-disc list-inside mb-4 space-y-1 text-text-muted;
+}
+
+.docs-content ol {
+  @apply list-decimal list-inside mb-4 space-y-1 text-text-muted;
+}
+
+.docs-content li {
+  @apply leading-relaxed;
+}
+
+.docs-content code:not(pre code) {
+  @apply px-1.5 py-0.5 bg-bg-panel border border-border rounded text-sm font-mono text-accent;
+}
+
+.docs-content pre {
+  @apply p-4 rounded-lg bg-bg-panel border border-border overflow-x-auto mb-6;
+}
+
+.docs-content pre code {
+  @apply text-sm leading-relaxed;
+}
+
+.docs-content table {
+  @apply w-full border-collapse mb-6;
+}
+
+.docs-content th {
+  @apply text-left px-4 py-2 bg-bg-panel border border-border text-text-primary font-semibold text-sm;
+}
+
+.docs-content td {
+  @apply px-4 py-2 border border-border text-text-muted text-sm;
+}
+
+.docs-content blockquote {
+  @apply border-l-4 border-accent pl-4 my-4 text-text-muted italic;
+}
+
+.docs-content strong {
+  @apply text-text-primary font-semibold;
+}
+
+.docs-content hr {
+  @apply border-border my-8;
+}

@@ -1,0 +1,34 @@
+---
+interface Props {
+  code: string;
+  lang?: string;
+}
+
+const { code, lang = 'bash' } = Astro.props;
+const id = `code-${Math.random().toString(36).slice(2, 8)}`;
+---
+
+<div class="code-block-wrapper">
+  <pre class="bg-bg-panel border border-border rounded-lg p-4 overflow-x-auto"><code id={id} class={`language-${lang} text-sm font-mono`}>{code}</code></pre>
+  <button
+    class="copy-button"
+    aria-label="Copy code to clipboard"
+    data-target={id}
+  >
+    Copy
+  </button>
+</div>
+
+<script>
+  document.querySelectorAll('.copy-button').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const targetId = btn.getAttribute('data-target');
+      if (!targetId) return;
+      const code = document.getElementById(targetId)?.textContent ?? '';
+      await navigator.clipboard.writeText(code);
+      const original = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    });
+  });
+</script>

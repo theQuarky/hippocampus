@@ -1,0 +1,127 @@
+---
+import Base from './Base.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import DocsSidebar from '../components/DocsSidebar.astro';
+import '../styles/global.css';
+
+interface Props {
+  frontmatter?: {
+    title?: string;
+    description?: string;
+  };
+  title?: string;
+  description?: string;
+  headings?: { depth: number; slug: string; text: string }[];
+}
+
+const { frontmatter, title: directTitle, description: directDesc, headings = [] } = Astro.props;
+const title = frontmatter?.title ?? directTitle ?? 'Docs';
+const description = frontmatter?.description ?? directDesc ?? 'Hippocampus documentation';
+const tocHeadings = headings.filter(h => h.depth === 2 || h.depth === 3);
+---
+
+<Base title={`${title} — Hippocampus Docs`} description={description}>
+  <Nav />
+
+  <!-- Mobile menu button -->
+  <div class="lg:hidden sticky top-14 z-30 bg-bg-primary border-b border-border px-4 py-2">
+    <button
+      id="sidebar-toggle"
+      class="flex items-center gap-2 text-sm text-text-muted hover:text-text-primary"
+      aria-label="Toggle sidebar navigation"
+    >
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+      </svg>
+      Menu
+    </button>
+  </div>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex gap-8">
+    <DocsSidebar />
+
+    <!-- Main content -->
+    <article class="docs-content min-w-0 flex-1 max-w-3xl">
+      <slot />
+    </article>
+
+    <!-- Right TOC -->
+    {tocHeadings.length > 0 && (
+      <aside class="hidden xl:block w-56 shrink-0">
+        <nav class="sticky top-20 max-h-[calc(100vh-5rem)] overflow-y-auto">
+          <h4 class="text-xs font-semibold uppercase tracking-wider text-text-dim mb-3">
+            On this page
+          </h4>
+          <ul class="space-y-1 border-l border-border">
+            {tocHeadings.map(h => (
+              <li>
+                <a
+                  href={`#${h.slug}`}
+                  class:list={[
+                    'block text-xs transition-colors hover:text-text-primary',
+                    h.depth === 2 ? 'pl-3 text-text-muted' : 'pl-6 text-text-dim',
+                  ]}
+                  data-toc-link
+                >
+                  {h.text}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </aside>
+    )}
+  </div>
+
+  <Footer />
+
+  <script>
+    // Mobile sidebar toggle
+    const toggle = document.getElementById('sidebar-toggle');
+    const sidebar = document.getElementById('docs-sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+
+    function closeSidebar() {
+      sidebar?.classList.remove('open');
+      overlay?.classList.add('hidden');
+    }
+
+    toggle?.addEventListener('click', () => {
+      const isOpen = sidebar?.classList.contains('open');
+      if (isOpen) {
+        closeSidebar();
+      } else {
+        sidebar?.classList.add('open');
+        overlay?.classList.remove('hidden');
+      }
+    });
+
+    overlay?.addEventListener('click', closeSidebar);
+
+    // TOC active state on scroll
+    const tocLinks = document.querySelectorAll('[data-toc-link]');
+    if (tocLinks.length > 0) {
+      const observer = new IntersectionObserver(
+        entries => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              const id = entry.target.id;
+              tocLinks.forEach(link => {
+                link.classList.toggle(
+                  'text-accent',
+                  link.getAttribute('href') === `#${id}`
+                );
+              });
+            }
+          });
+        },
+        { rootMargin: '-80px 0px -80% 0px' }
+      );
+
+      document.querySelectorAll('.docs-content h2[id], .docs-content h3[id]').forEach(h => {
+        observer.observe(h);
+      });
+    }
+  </script>
+</Base>

@@ -1,0 +1,35 @@
+---
+const links = [
+  { label: 'Docs', href: '/hippocampus/docs/quickstart' },
+  { label: 'GitHub', href: 'https://github.com/theQuarky/hippocampus', external: true },
+];
+---
+
+<nav class="sticky top-0 z-50 bg-bg-primary/90 backdrop-blur-md border-b border-border">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+    <a href="/hippocampus/" class="flex items-center gap-2 text-text-primary hover:text-accent transition-colors">
+      <span class="text-xl" aria-hidden="true">&#x1f9e0;</span>
+      <span class="font-semibold text-base">Hippocampus</span>
+    </a>
+
+    <div class="flex items-center gap-6">
+      {links.map(link => (
+        <a
+          href={link.href}
+          class="text-sm text-text-muted hover:text-text-primary transition-colors"
+          {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+        >
+          {link.label}
+        </a>
+      ))}
+      <a
+        href="https://github.com/theQuarky/hippocampus/releases/latest"
+        class="text-sm font-medium px-3 py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white transition-colors"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Download
+      </a>
+    </div>
+  </div>
+</nav>

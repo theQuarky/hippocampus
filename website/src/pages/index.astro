@@ -1,0 +1,41 @@
+---
+import Page from '../layouts/Page.astro';
+import Hero from '../components/Hero.astro';
+import Feature from '../components/Feature.astro';
+import FileTypes from '../components/FileTypes.astro';
+import HowItWorks from '../components/HowItWorks.astro';
+import InstallTabs from '../components/InstallTabs.astro';
+import Metrics from '../components/Metrics.astro';
+---
+
+<Page title="Hippocampus — Local AI Memory System">
+  <Hero />
+
+  <!-- Three pillars -->
+  <section class="py-16 border-t border-border">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6">
+      <div class="grid sm:grid-cols-3 gap-4">
+        <Feature
+          icon="&#x1f512;"
+          title="Private by design"
+          description="Everything runs on your hardware. No telemetry, no cloud, no API keys required."
+        />
+        <Feature
+          icon="&#x1f9e0;"
+          title="Memory that evolves"
+          description="Connections between ideas strengthen each time you retrieve them. Inspired by how biological memory actually works."
+        />
+        <Feature
+          icon="&#x1f50c;"
+          title="API-first"
+          description="HTTP + gRPC. Connect to any tool, agent, or workflow."
+        />
+      </div>
+    </div>
+  </section>
+
+  <FileTypes />
+  <HowItWorks />
+  <InstallTabs />
+  <Metrics />
+</Page>

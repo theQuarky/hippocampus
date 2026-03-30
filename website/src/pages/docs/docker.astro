@@ -1,0 +1,53 @@
+---
+import Docs from '../../layouts/Docs.astro';
+---
+
+<Docs title="Docker Setup" description="Run Hippocampus with Docker Compose and optional CLI container workflow.">
+  <h1 id="docker-setup">Docker Setup</h1>
+  <p>
+    The Docker setup runs three services: <code>hippocampus</code>, <code>qdrant</code>, and <code>ollama</code>.
+    Data and models are persisted under the repository <code>data/</code> directory.
+  </p>
+
+  <h2 id="start-stop">Start And Stop</h2>
+  <pre><code># Start all core services
+npm run docker:up
+
+# Stop and remove containers
+npm run docker:down
+
+# Tail Hippocampus logs
+npm run docker:logs</code></pre>
+
+  <h2 id="pull-models">Pull Default Models</h2>
+  <pre><code>npm run docker:setup</code></pre>
+  <p>
+    This uses the <code>ollama-pull</code> setup profile to pull <code>phi3:mini</code> and
+    <code>moondream</code> into the local Ollama volume.
+  </p>
+
+  <h2 id="run-cli-in-container">Run CLI In Container</h2>
+  <pre><code># Generic pattern
+npm run docker:ingest -- &lt;command&gt; [args]
+
+# Examples
+npm run docker:ingest -- ingest /uploads/notes.pdf
+npm run docker:ingest -- query "memory consolidation"
+npm run docker:ingest -- query-answer "Summarize the key findings"</code></pre>
+
+  <h2 id="mounted-volumes">Mounted Volumes</h2>
+  <ul>
+    <li><code>./data/hippocampus:/app/data</code></li>
+    <li><code>./data/models:/app/models</code></li>
+    <li><code>./uploads:/app/uploads</code></li>
+    <li><code>./data/piper-voices:/app/piper-voices</code></li>
+  </ul>
+
+  <h2 id="important-ports">Important Ports</h2>
+  <ul>
+    <li><code>3001</code>: Hippocampus HTTP</li>
+    <li><code>50051</code>: Hippocampus gRPC</li>
+    <li><code>6333</code> and <code>6334</code>: Qdrant HTTP and gRPC</li>
+    <li><code>11434</code>: Ollama API</li>
+  </ul>
+</Docs>
