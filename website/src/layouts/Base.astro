@@ -1,4 +1,6 @@
 ---
+import MemoryGraph from '../components/MemoryGraph.astro';
+
 interface Props {
   title: string;
   description?: string;
@@ -32,7 +34,10 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 
     <title>{title}</title>
   </head>
-  <body class="min-h-screen bg-bg-primary text-text-primary antialiased">
-    <slot />
+  <body class="min-h-screen bg-bg-primary text-text-primary antialiased relative overflow-x-hidden">
+    <MemoryGraph />
+    <div class="relative z-10">
+      <slot />
+    </div>
   </body>
 </html>

@@ -4,7 +4,7 @@
 <canvas
   id="memory-graph"
   aria-hidden="true"
-  class="absolute inset-0 w-full h-full pointer-events-none"
+  class="fixed inset-0 w-full h-full pointer-events-none z-0"
 ></canvas>
 
 <script>
@@ -18,7 +18,7 @@
   const ctx = canvas.getContext('2d')!;
 
   // ── Design tokens ──────────────────────────────────────────────────────────
-  const AC: [number, number, number] = [99, 102, 241]; // #6366f1
+  const AC: [number, number, number] = [132, 236, 186]; // mint green
   const BG_RGB: [number, number, number] = [15, 17, 23]; // #0f1117
   const CONNECT_DIST = 145;
   const MOUSE_RADIUS = 190;
