@@ -20,17 +20,17 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
 # ── Binaries ──────────────────────────────────────────────────────────────────
 log "Copying binaries..."
-cp "$RELEASE/hippocampus-server-linux" "$APPDIR/usr/bin/hippocampus-server"
-chmod +x "$APPDIR/usr/bin/hippocampus-server"
-
-# The pkg-fix.sh wrapper renames the real binary to .bin and creates a shell
-# wrapper at hippocampus-server-linux. Copy the .bin too.
+# pkg-fix.sh renames the raw binary to hippocampus-server-linux.bin and places
+# a bash wrapper at hippocampus-server-linux that sets LD_LIBRARY_PATH. The
+# wrapper hardcodes the .bin name, so both files must keep their original names.
+cp "$RELEASE/hippocampus-server-linux" "$APPDIR/usr/bin/hippocampus-server-linux"
+chmod +x "$APPDIR/usr/bin/hippocampus-server-linux"
 if [ -f "$RELEASE/hippocampus-server-linux.bin" ]; then
-  cp "$RELEASE/hippocampus-server-linux.bin" "$APPDIR/usr/bin/hippocampus-server.bin"
+  cp "$RELEASE/hippocampus-server-linux.bin" "$APPDIR/usr/bin/hippocampus-server-linux.bin"
 fi
 
-# Copy native modules and helper libs alongside server binary
-for item in better-sqlite3 onnxruntime-node "@tensorflow" node_modules; do
+# Copy native modules and helper libs alongside the binary (same dir is $BIN)
+for item in better-sqlite3 onnxruntime-node "@tensorflow" node_modules hippocampus.proto; do
   if [ -e "$RELEASE/$item" ]; then
     cp -r "$RELEASE/$item" "$APPDIR/usr/bin/"
   fi
@@ -115,7 +115,7 @@ if [ $# -gt 0 ]; then
   TRANSFORMERS_CACHE="$DATA_DIR/models" \
   QDRANT_URL="http://localhost:6333" \
   OLLAMA_URL="http://localhost:11434" \
-    "$BIN/hippocampus-server" "$@"
+    "$BIN/hippocampus-server-linux" "$@"
   exit $?
 fi
 
@@ -128,7 +128,7 @@ QDRANT_URL="http://localhost:6333" \
 OLLAMA_URL="http://localhost:11434" \
 HTTP_PORT=3001 \
 GRPC_PORT=50051 \
-  "$BIN/hippocampus-server"
+  "$BIN/hippocampus-server-linux"
 EOF
 
 chmod +x "$APPDIR/AppRun"
