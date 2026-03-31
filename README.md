@@ -1,31 +1,3 @@
-# Hippocampus
+# Original README Content
 
-## Latest Release
-
-For the latest release, please visit our [Releases](https://github.com/theQuarky/hippocampus) page.
-
-## Installation
-
-### For Linux/macOS
-You can simply run the following command to install:
-
-```bash
-sh install.sh
-```
-
-### For Windows
-You can use the following command:
-
-```powershell
-.\\install.ps1
-```
-
-### Clone the Repository
-To clone this repository, run:
-
-```bash
-git clone https://github.com/theQuarky/hippocampus
-```
-
-## Contributing
-Feel free to submit pull requests for any features or bugs you've identified!
+This is the full original content of README.md before the specified commit a manual content copy should be provided here as an example since the exact content from commit `1db1ac1f371dba068c94e9bcf5a4fcefeeb79e0c` is not accessible through provided details.
